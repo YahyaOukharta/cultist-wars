@@ -28,7 +28,7 @@ def upload(net=None):
     os.makedirs(d, exist_ok=True)
     json.dump({"title": "cw-engine", "id": f"{USER}/cw-engine", "licenses": [{"name": "CC0-1.0"}]},
               open(os.path.join(d, "dataset-metadata.json"), "w"))
-    shutil.copy(os.path.join(ROOT, "bot.cpp"), d)
+    shutil.copy(os.environ.get("CW_BOT", os.path.join(ROOT, "bot.cpp")), os.path.join(d, "bot.cpp"))   # CW_BOT: another engine source
     if net:
         shutil.copy(net, d)
     r = kg("datasets", "create", "-p", d) if new else kg("datasets", "version", "-p", d, "-m", "update")
