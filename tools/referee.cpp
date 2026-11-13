@@ -353,8 +353,66 @@ static int exportFile(const char* path, const char* out) {
     return 0;
 }
 
+// ---- analysis of recorded games --------------------------------------------------------------
+// Same FILE format as --export, plus `P seat game_id` before each game: our seat. Searches every
+// position where we were to move (CW_NODES nodes) and prints: game turn score units0 units1.
+static int analyzeFile(const char* path) {
+    FILE* f = fopen(path, "r");
+    if (!f) { perror(path); return 2; }
+    static char buf[1 << 16];
+    initNet();
+    initSearch();
+    nodeLimit = getenv("CW_NODES") ? atoll(getenv("CW_NODES")) : 100000;
+    State s;
+    bool have = false;
+    int seat = 0;
+    long long game = 0;
+    while (fgets(buf, sizeof buf, f)) {
+        string l(buf);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+        if (l.size() < 2) continue;
+        if (l[0] == 'P') sscanf(l.c_str() + 2, "%d %lld", &seat, &game);
+        else if (l[0] == 'M') {
+            char grid[H][W + 2];
+            const char* p = l.c_str() + 2;
+            for (int y = 0; y < H; y++) { memcpy(grid[y], p + y * (W + 1), W); grid[y][W] = 0; }
+            initTables(grid);
+            memset(tt, 0, sizeof(TTE) << TT_BITS);
+            have = false;
+        } else if (l[0] == 'S') {
+            int turn, pos = 0;
+            unsigned seed;
+            sscanf(l.c_str() + 2, "%d %u%n", &turn, &seed, &pos);
+            Obs ob;
+            memset(&ob, 0, sizeof ob);
+            const char* p = l.c_str() + 2 + pos;
+            int id, hp, x, y, ow, n;
+            while (sscanf(p, " %d,%d,%d,%d,%d%n", &id, &hp, &x, &y, &ow, &n) == 5) {
+                ob.hp[id] = (int8_t)hp; ob.pos[id] = (int8_t)(y * W + x); ob.own[id] = (int8_t)ow;
+                p += n;
+            }
+            s = fromObs(ob, seed, turn, nullptr);
+            have = true;
+        } else if (l[0] == 'A' && have) {
+            int turn, player, pos = 0;
+            sscanf(l.c_str() + 2, "%d %d %n", &turn, &player, &pos);
+            Move m;
+            string err;
+            if (turn != s.turn || over(s) || !resolveAction(s, player, l.substr(2 + pos), m, err)) { have = false; continue; }
+            if (player == seat) {
+                Move best = think(s, 1e9);
+                printf("%lld %d %d %d %d %s | %s\n", game, s.turn, info.score, s.cnt[seat], s.cnt[seat ^ 1], moveStr(s, m).c_str(), moveStr(s, best).c_str());
+            }
+            apply(s, m);
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
+    if (argc >= 3 && string(argv[1]) == "--analyze") return analyzeFile(argv[2]);
     if (argc >= 3 && string(argv[1]) == "--check") return checkFile(argv[2]);
     if (argc >= 4 && string(argv[1]) == "--export") return exportFile(argv[2], argv[3]);
     if (argc < 3) {

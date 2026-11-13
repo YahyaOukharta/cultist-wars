@@ -5,6 +5,8 @@
   arena_data.py export OUT.bin [--top] [--sub ID]
                                  rebuild every position (map from the game seed, tools/mapgen.py;
                                  moves from the log) -> 48-byte records, result as label
+  arena_data.py games OUT.txt [--top] [--sub ID] [--only loss]
+                                 the same games as text, for `referee --analyze` (needs a net: CW_NET)
 A battle log has no board, only the seed and both players' outputs; the game is deterministic.
 --top keeps only games against the eight players above us.
 """
@@ -43,10 +45,10 @@ def fetch():
             print(i, flush=True)
 
 
-def export(out, top, sub):
+def export(out, top, sub, only=None, seats=False):
     lines, n = [], 0
     for b in battles():
-        if (top and b["opponent"] not in TOP) or (sub and b["submission"] != sub):
+        if (top and b["opponent"] not in TOP) or (sub and b["submission"] != sub) or (only and b["result"] != only):
             continue
         p = os.path.join(LOGS, f"{b['game_id']}.log")
         if not os.path.exists(p):
@@ -57,6 +59,8 @@ def export(out, top, sub):
         if not seed or not sc:
             continue
         grid, units = mapgen.make_map(int(seed.group(1)))
+        if seats:
+            lines.append(f"P {re.search(r'(\d) yhyoxx', log).group(1)} {b['game_id']}")
         lines.append("M " + " ".join(grid))
         lines.append("S 0 42 " + " ".join(f"{u},10,{x},{y},{u if u < 2 else 2}" for u, (x, y) in sorted(units.items())))
         for f in re.split(r"\nframe ", log)[1:]:
@@ -69,6 +73,10 @@ def export(out, top, sub):
         n += 1
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as t:
         t.write("\n".join(lines) + "\n")
+    if seats:          # analysis input: keep the file, the caller runs build/referee --analyze on it
+        os.replace(t.name, out)
+        print(n, "games ->", out)
+        return
     print(n, "games;", subprocess.run([os.path.join(ROOT, "build", "referee"), "--export", t.name, out], capture_output=True, text=True).stdout.strip())
     os.unlink(t.name)
 
@@ -78,4 +86,5 @@ if __name__ == "__main__":
     if a[0] == "fetch":
         fetch()
     else:
-        export(a[1], "--top" in a, int(a[a.index("--sub") + 1]) if "--sub" in a else 0)
+        export(a[1], "--top" in a, int(a[a.index("--sub") + 1]) if "--sub" in a else 0,
+               a[a.index("--only") + 1] if "--only" in a else None, a[0] == "games")

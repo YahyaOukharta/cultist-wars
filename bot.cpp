@@ -63,6 +63,24 @@ static const Move NOMOVE = 0xFFFF;
 #ifndef LMP_D
 #define LMP_D 3
 #endif
+#ifndef FUT_D        // futility up to this depth
+#define FUT_D 2
+#endif
+#ifndef NOWAIT       // 1: WAIT is only generated when there is no other move
+#define NOWAIT 0
+#endif
+#ifndef NEUSHOT      // 0: all shots at neutrals, 1: only killing ones, 2: none
+#define NEUSHOT 0
+#endif
+#ifndef QDMG         // quiescence also searches shots on enemy units doing at least QDMG damage (0 = killing shots only)
+#define QDMG 0
+#endif
+#ifndef LMP_LIN      // late move pruning threshold LMP + LMP_LIN * depth instead of LMP + depth^2 (0 = off)
+#define LMP_LIN 0
+#endif
+#ifndef HPRUNE       // history pruning: skip quiet moves with history below -HPRUNE*depth at depth <= 4 (0 = off)
+#define HPRUNE 0
+#endif
 #ifndef THREAT       // leader steps that threaten a conversion are never pruned and reduced less (0 = off)
 #define THREAT 1
 #endif
@@ -390,16 +408,17 @@ static int gen(const State& s, Move* mv, int* sc, int mode) {
                     v = -500000;
                 } else if (o == 2) {
                     if (mode == 2) continue;
+                    if (mode == 0 && NEUSHOT && (NEUSHOT == 2 || !kill)) continue;
                     v = kill ? -1000 : -2000 + dmg;
                 } else {
-                    if (mode == 2 && !kill) continue;
+                    if (mode == 2 && !kill && !(QDMG && dmg >= QDMG)) continue;
                     v = (kill ? 850000 : 500000) + dmg * 1000 + (h < 2 ? 500 : 0) - s.hp[h];
                 }
                 mv[n] = mk(SHOOT, u, s.at[c]); sc[n++] = v;
             }
         }
     }
-    if (mode != 2) { mv[n] = mk(WAIT, 0, 0); sc[n++] = -900000; }
+    if (mode != 2 && !(NOWAIT && mode == 0 && n)) { mv[n] = mk(WAIT, 0, 0); sc[n++] = -900000; }
     return n;
 }
 
@@ -547,8 +566,9 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
         Move m = mv[i];
         bool quiet = sc[i] < 450000, threat = quiet && sc[i] >= 420000;
         if (i > 0 && quiet && !threat && !pv && best > -MATE + 400) {
-            if (LMP && depth <= LMP_D && i >= LMP + depth * depth) continue;
-            if (FUT && depth <= 2 && ev + FUT * depth <= alpha) continue;
+            if (LMP && depth <= LMP_D && i >= LMP + (LMP_LIN ? LMP_LIN * depth : depth * depth)) continue;
+            if (FUT && depth <= FUT_D && ev + FUT * depth <= alpha) continue;
+            if (HPRUNE && depth <= 4 && sc[i] < -HPRUNE * depth) continue;
         }
         State c = s;
         apply(c, m);
