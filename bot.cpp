@@ -42,6 +42,30 @@ static const Move NOMOVE = 0xFFFF;
 #ifndef QMAX
 #define QMAX 6
 #endif
+#ifndef ASP          // aspiration window half-width (0 = off)
+#define ASP 0
+#endif
+#ifndef NMP          // null move (a real WAIT) reduction base (0 = off)
+#define NMP 0
+#endif
+#ifndef RFP          // reverse futility margin per depth (0 = off)
+#define RFP 0
+#endif
+#ifndef RFP_MAXD
+#define RFP_MAXD 4
+#endif
+#ifndef FUT          // futility margin per depth, depth <= 2 (0 = off)
+#define FUT 0
+#endif
+#ifndef LMP          // late move pruning base count (0 = off)
+#define LMP 0
+#endif
+#ifndef LMP_D
+#define LMP_D 3
+#endif
+#ifndef IIR          // internal iterative reduction from this depth (0 = off)
+#define IIR 0
+#endif
 #ifndef UNITV
 #define UNITV 1000
 #endif
@@ -377,7 +401,7 @@ static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     return stand;
 }
 
-static int search(const State& s, int depth, int alpha, int beta, int ply) {
+static int search(const State& s, int depth, int alpha, int beta, int ply, bool allowNull = true) {
     if (over(s)) return terminal(s, ply);
     if (depth <= 0) return qsearch(s, alpha, beta, ply, 0);
     nodes++;
@@ -394,6 +418,18 @@ static int search(const State& s, int depth, int alpha, int beta, int ply) {
             if (e->flag == TT_EXACT || (e->flag == TT_LOWER && v >= beta) || (e->flag == TT_UPPER && v <= alpha)) return v;
         }
     }
+    int ev = evalStm(s);
+    if (!pv && abs(beta) < MATE - 400) {
+        if (RFP && depth <= RFP_MAXD && ev - RFP * depth >= beta) return ev;
+        if (NMP && allowNull && depth >= 3 && ev >= beta) {
+            State c = s;
+            apply(c, mk(WAIT, 0, 0));
+            int v = -search(c, depth - 1 - NMP - depth / 4, -beta, -beta + 1, ply + 1, false);
+            if (stopped) return 0;
+            if (v >= beta && v < MATE - 400) return v;
+        }
+    }
+    if (IIR && depth >= IIR && ttm == NOMOVE) depth--;
     Move mv[256]; int sc[256];
     int n = gen(s, mv, sc, 0), me = s.turn & 1;
     for (int i = 0; i < n; i++) {
@@ -411,6 +447,10 @@ static int search(const State& s, int depth, int alpha, int beta, int ply) {
         pick(mv, sc, i, n);
         Move m = mv[i];
         bool quiet = sc[i] < 450000;
+        if (i > 0 && quiet && !pv && best > -MATE + 400) {
+            if (LMP && depth <= LMP_D && i >= LMP + depth * depth) continue;
+            if (FUT && depth <= 2 && ev + FUT * depth <= alpha) continue;
+        }
         State c = s;
         apply(c, m);
         int v;
@@ -461,28 +501,36 @@ static Move think(const State& root, double budgetMs) {
     int n = gen(root, mv, sc, 0);
     Move best = mv[pick(mv, sc, 0, n)];
     info = {0, 0, 0, 0};
-    int maxDepth = MAXTURN - root.turn;
+    int maxDepth = MAXTURN - root.turn, prev = 0;
     for (int depth = 1; depth <= maxDepth; depth++) {
-        int alpha = -INF, itScore = -INF;
-        Move itBest = NOMOVE;
-        for (int i = 0; i < n; i++) if (mv[i] == best) { swap(mv[0], mv[i]); swap(sc[0], sc[i]); }
-        for (int i = 0; i < n; i++) {
-            if (i) pick(mv, sc, i, n);
-            State c = root;
-            apply(c, mv[i]);
-            int v;
-            if (i == 0) v = -search(c, depth - 1, -INF, -alpha, 1);
-            else {
-                v = -search(c, depth - 1, -alpha - 1, -alpha, 1);
-                if (v > alpha && !stopped) v = -search(c, depth - 1, -INF, -alpha, 1);
+        int lo = -INF, hi = INF, delta = ASP;
+        if (ASP && depth >= 4) { lo = prev - delta; hi = prev + delta; }
+        for (;;) {
+            int alpha = lo, itScore = -INF;
+            Move itBest = NOMOVE;
+            for (int i = 0; i < n; i++) if (mv[i] == best) { swap(mv[0], mv[i]); swap(sc[0], sc[i]); }
+            for (int i = 0; i < n; i++) {
+                if (i) pick(mv, sc, i, n);
+                State c = root;
+                apply(c, mv[i]);
+                int v;
+                if (i == 0) v = -search(c, depth - 1, -hi, -alpha, 1);
+                else {
+                    v = -search(c, depth - 1, -alpha - 1, -alpha, 1);
+                    if (v > alpha && !stopped) v = -search(c, depth - 1, -hi, -alpha, 1);
+                }
+                if (stopped) break;
+                if (v > itScore) { itScore = v; if (v > alpha) { alpha = v; itBest = mv[i]; if (v >= hi) break; } }
             }
+            // An interrupted iteration still counts once a move has beaten the window's lower bound.
+            if (itBest != NOMOVE) { best = itBest; info.score = itScore; }
             if (stopped) break;
-            if (v > itScore) { itScore = v; itBest = mv[i]; if (v > alpha) alpha = v; }
+            if (itScore <= lo) { lo = max(-INF, lo - delta * 2); delta *= 3; }
+            else if (itScore >= hi) { hi = min(INF, hi + delta * 2); delta *= 3; }
+            else { prev = itScore; info.depth = depth; break; }
         }
-        // An interrupted iteration still counts once its first move (the previous best) is done.
-        if (itBest != NOMOVE) { best = itBest; info.score = itScore; if (!stopped) info.depth = depth; }
         if (stopped) break;
-        if (abs(itScore) > MATE - 400) break;
+        if (abs(prev) > MATE - 400) break;
         if (!nodeLimit && chrono::steady_clock::now() - t0 > (deadline - t0) * 6 / 10) break;
     }
     info.nodes = nodes;
