@@ -16,17 +16,22 @@ TOP = ["aCat", "Noobkins", "MSz", "Zylo", "ziele", "KawattaTaido", "Pduhard-", "
 
 
 def run(tag, src, games, ids):
-    if not ids:
-        opp = {o["nickname"]: o["agent_id"] for o in cg.call(f"/puzzles/{cg.PUZ}/opponents")["opponents"]}
-        ids = [str(opp[n]) for n in TOP if n in opp]
+    fixed = bool(ids)
     for g in range(games):
+        if not fixed:   # agent ids change when a player resubmits: look them up every round
+            opp = {o["nickname"]: o["agent_id"] for o in cg.call(f"/puzzles/{cg.PUZ}/opponents")["opponents"]}
+            ids = [str(opp[n]) for n in TOP if n in opp]
         for i in ids:
-            path = cg.test(src, i)
+            try:
+                path = cg.test(src, i)
+            except SystemExit as e:
+                print("skipped", i, str(e)[:120], flush=True)
+                continue
             log = open(path).read()
             name = re.search(r"\n\s+1 (.+?) \(agent_id", log).group(1)
             m = re.search(r"scores: 0=(-?\d+) 1=(-?\d+)", log)
             me, op = int(m.group(1)), int(m.group(2))
-            bad = "timeout" if "timeout" in log.lower() else "desync" if "DESYNC" in log else ""
+            bad = "timeout" if "$0 timeout" in log else "desync" if "DESYNC" in log else ""
             with open(OUT, "a") as f:
                 f.write(json.dumps({"tag": tag, "opponent": name, "me": me, "opp": op, "log": os.path.basename(path), "bad": bad, "time": int(time.time())}) + "\n")
 
