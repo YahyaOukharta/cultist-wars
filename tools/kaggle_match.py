@@ -28,7 +28,7 @@ subprocess.check_call(cc + ["-o", "/tmp/referee", "/tmp/src/tools/referee.cpp"])
 subprocess.check_call(cc + FA.split() + ["-o", "/tmp/a", d + "/" + A])
 subprocess.check_call(cc + FB.split() + ["-o", "/tmp/b", d + "/" + B])
 # MS > 0: real time control (2 games at once on 4 vCPUs so every bot has a core to itself)
-mode = ["-j", "2", "-n", "0", "-t", str(MS), "-f", str(10 * MS), "-x", "20"] if MS else ["-j", "4", "-n", str(NODES)]
+mode = ["-j", "2", "-n", "0", "-t", str(MS), "-f", "1000", "-x", "20"] if MS else ["-j", "4", "-n", str(NODES)]
 out = subprocess.check_output(["/tmp/referee", "/tmp/a", "/tmp/b", "-g", str(GAMES), "-s", "777"] + mode, text=True)
 print("RESULT", A + "@" + FA, B + "@" + FB, out.strip().splitlines()[-1], flush=True)
 '''

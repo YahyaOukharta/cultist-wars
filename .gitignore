@@ -13,3 +13,6 @@ referee-src/
 arena/
 data/
 kaggle/
+
+# float checkpoints stay local
+tools/nets/*.pt

@@ -63,6 +63,9 @@ static const Move NOMOVE = 0xFFFF;
 #ifndef LMP_D
 #define LMP_D 3
 #endif
+#ifndef THREAT       // leader steps that threaten a conversion are never pruned and reduced less (0 = off)
+#define THREAT 1
+#endif
 #ifndef IIR          // internal iterative reduction from this depth (0 = off)
 #define IIR 0
 #endif
@@ -343,11 +346,25 @@ static int gen(const State& s, Move* mv, int* sc, int mode) {
     for (int u = 0; u < NU; u++) {
         if (s.hp[u] <= 0 || s.own[u] != me) continue;
         int p = s.pos[u];
-        if (mode != 2)
+        if (mode != 2) {
+            int best0 = 99;   // leader: walking distance to the nearest unit it could convert
+            if (THREAT && u < 2 && mode == 0)
+                for (int t = 2; t < NU; t++)
+                    if (s.hp[t] > 0 && s.own[t] != me) best0 = min(best0, (int)bfsD[p][s.pos[t]]);
             for (int d = 0; d < 4; d++) {
                 int c = nbr[p][d];
-                if (c >= 0 && s.at[c] < 0) { mv[n] = mk(MOVE, u, c); sc[n++] = 0; }
+                if (c < 0 || s.at[c] >= 0) continue;
+                int v = 0;
+                if (best0 < 99) {
+                    int b1 = 99;
+                    for (int t = 2; t < NU; t++)
+                        if (s.hp[t] > 0 && s.own[t] != me) b1 = min(b1, (int)bfsD[c][s.pos[t]]);
+                    if (b1 == 1) v = 430000;            // next to a convertible unit: a threat
+                    else if (b1 < best0) v = 50000;     // approaching one
+                }
+                mv[n] = mk(MOVE, u, c); sc[n++] = v;
             }
+        }
         if (u < 2) {
             for (int d = 0; d < 4; d++) {
                 int c = nbr[p][d], t = c >= 0 ? s.at[c] : -1;
@@ -517,7 +534,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     for (int i = 0; i < n; i++) {
         Move m = mv[i];
         if (m == ttm) sc[i] = 2000000;
-        else if (sc[i] > -100000 && sc[i] < 100000) {
+        else if (sc[i] > -100000 && sc[i] < 100000) {   // quiet steps and shots at neutrals
             if (m == killer[ply][0]) sc[i] = 400000;
             else if (m == killer[ply][1]) sc[i] = 399000;
             else sc[i] += hist[me][m & 8191];
@@ -528,8 +545,8 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     for (int i = 0; i < n; i++) {
         pick(mv, sc, i, n);
         Move m = mv[i];
-        bool quiet = sc[i] < 450000;
-        if (i > 0 && quiet && !pv && best > -MATE + 400) {
+        bool quiet = sc[i] < 450000, threat = quiet && sc[i] >= 420000;
+        if (i > 0 && quiet && !threat && !pv && best > -MATE + 400) {
             if (LMP && depth <= LMP_D && i >= LMP + depth * depth) continue;
             if (FUT && depth <= 2 && ev + FUT * depth <= alpha) continue;
         }
@@ -541,6 +558,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
             int r = 0;
             if (LMR && quiet && depth >= 3 && i >= 3) {
                 r = lmrTab[min(depth, 63)][min(i, 63)];
+                if (threat) r = r / 2;
                 if (r > depth - 2) r = depth - 2;
             }
             v = -search(c, depth - 1 - r, -alpha - 1, -alpha, ply + 1);
