@@ -11,7 +11,7 @@ import argparse, os, re
 import numpy as np
 
 OFF = 0x2100  # 15-bit value + OFF stays in [0x2100, 0xA100): no controls, quotes, line separators or surrogates
-NF, NB = 1911, 4
+NF, NB = 17 * 91 + 91 + 108, 4
 ap = argparse.ArgumentParser()
 ap.add_argument("src", nargs="?", default="bot.cpp")
 ap.add_argument("-n", "--net")

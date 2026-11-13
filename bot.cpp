@@ -114,7 +114,10 @@ static inline U128 bit(int c) { return (U128)1 << c; }
 
 #if NN_H
 // ---- neural evaluation: weights and feature indexing (see tools/train.py) -----------------
-enum { NN_B = 4, NUF = 5 * 4 * NC, NF = NUF + NC, QA = 255, QB = 64 };
+// Inputs: unit on cell (17 kinds: 4 owner/role types x 4 hp buckets, + neutral), obstacle on
+// cell, and NT relational features computed at evaluation time (units under fire, units
+// next to a leader that can convert them).
+enum { NN_B = 4, NUF = 17 * NC, NT = 108, NF = NUF + NC + NT, QA = 255, QB = 64 };
 static int16_t nnW[NF][NN_H], nnBias[NN_H], nnO[NN_B][2][NN_H];
 static int32_t nnOB[NN_B];
 static int16_t nnBase[2][NN_H];   // bias + obstacle features of this map, per perspective
@@ -122,7 +125,7 @@ static const int8_t HPB[11] = {0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3};
 static inline int feat(int p, int u, int own, int hp, int pos) {
     int typ = u < 2 ? (u != p) : own == p ? 2 : own == 2 ? 4 : 3;
     int sq = p ? pos / W * W + (W - 1 - pos % W) : pos;
-    return (typ * 4 + HPB[hp]) * NC + sq;
+    return (typ == 4 ? 16 : typ * 4 + HPB[hp]) * NC + sq;
 }
 static bool nnLoaded;
 static void nnRead(const int16_t* v) {   // v: the int16 stream of the .bin file, biases split in two
@@ -437,8 +440,57 @@ static int evalP0(const State& s) {
 }
 #if NN_H
 static inline int nnEval(const State& s) {
+    // Relational features are collected first; the accumulators are only copied when there are any.
+    int16_t fx[2][64];
+    int nf = 0;
+    U128 cul[2] = {0, 0};
+    for (int u = 2; u < NU; u++) if (s.hp[u] > 0 && s.own[u] < 2) cul[s.own[u]] |= bit(s.pos[u]);
+    // Units under fire: best single shot d1 and second best d2 an enemy cultist has on the unit.
+    if (cul[0] | cul[1])
+        for (int t = 0; t < NU; t++) {
+            if (s.hp[t] <= 0 || s.own[t] == 2) continue;
+            int o = s.own[t], pt = s.pos[t], hp = s.hp[t], d1 = 0, d2 = 0;
+            U128 cand = cul[o ^ 1] & rangeMask[pt];
+            if (!cand) continue;
+            for (int half = 0; half < 2; half++) {
+                U64 bb = half ? (U64)(cand >> 64) : (U64)cand;
+                while (bb) {
+                    int ps = __builtin_ctzll(bb) + half * 64; bb &= bb - 1;
+                    if (pathWall[ps][pt] || (pathMask[ps][pt] & s.occ)) continue;
+                    int dm = 7 - mdist[ps][pt];
+                    if (dm > d1) { d2 = d1; d1 = dm; } else if (dm > d2) d2 = dm;
+                }
+            }
+            if (!d1) continue;
+            int t0 = t < 2 ? t : (o == 0 ? 2 : 3), t1 = t < 2 ? (t ^ 1) : (o == 1 ? 2 : 3);   // type seen by player 0 / 1
+            int k = HPB[hp] * 6 + d1 - 1;
+            fx[0][nf] = (int16_t)(t0 * 24 + k); fx[1][nf++] = (int16_t)(t1 * 24 + k);
+            if (d1 >= hp) { fx[0][nf] = (int16_t)(96 + t0); fx[1][nf++] = (int16_t)(96 + t1); }
+            else if (d1 + d2 >= hp) { fx[0][nf] = (int16_t)(100 + t0); fx[1][nf++] = (int16_t)(100 + t1); }
+        }
+    // Cultists a leader can convert on its next action.
+    for (int l = 0; l < 2; l++) {
+        if (s.hp[l] <= 0) continue;
+        for (int d = 0; d < 4; d++) {
+            int c = nbr[s.pos[l]][d], t = c >= 0 ? s.at[c] : -1;
+            if (t < 2 || s.own[t] == l) continue;
+            for (int p = 0; p < 2; p++) fx[p][nf] = (int16_t)(s.own[t] == 2 ? 106 + (l != p) : 104 + (s.own[t] != p));
+            nf++;
+        }
+    }
+    int16_t tmp[2][NN_H];
+    const int16_t (*a)[NN_H] = s.acc;
+    if (nf) {
+        memcpy(tmp, s.acc, sizeof tmp);
+        for (int p = 0; p < 2; p++)
+            for (int j = 0; j < nf; j++) {
+                const int16_t* w = nnW[NUF + NC + fx[p][j]];
+                for (int i = 0; i < NN_H; i++) tmp[p][i] += w[i];
+            }
+        a = tmp;
+    }
     int stm = s.turn & 1, left = MAXTURN - s.turn, b = (left <= 70) + (left <= 30) + (left <= 10);
-    const int16_t *a0 = s.acc[stm], *a1 = s.acc[stm ^ 1], *o0 = nnO[b][0], *o1 = nnO[b][1];
+    const int16_t *a0 = a[stm], *a1 = a[stm ^ 1], *o0 = nnO[b][0], *o1 = nnO[b][1];
     int sum = 0;
     for (int i = 0; i < NN_H; i++) {
         int v = min(max((int)a0[i], 0), (int)QA), w = min(max((int)a1[i], 0), (int)QA);
