@@ -4,19 +4,14 @@
 Data: 48-byte records written by `CW_GEN` (see runGen in bot.cpp).
 Inputs, per perspective (the perspective player's own leader starts on the left: the
 board is mirrored left-right for player 1):
-  unit features  (type * 4 + hp bucket) * 91 + cell, neutrals 16 * 91 + cell     1547
+  unit features  (type * 4 + hp bucket) * 91 + cell      1820
      type: 0 my leader, 1 enemy leader, 2 my cultist, 3 enemy cultist, 4 neutral
      hp bucket: 1-2, 3-4, 5-6, 7-10 (a shot does at most 6)
-  obstacle features  1547 + cell                                                  91
-  relational features (counts)                                                   108
-     (type * 4 + hp bucket) * 6 + d1 - 1   unit under fire, d1 = best enemy shot on it
-     96 + type    it dies to that shot;  100 + type   it dies to the two best shots
-     104 / 105    my / enemy cultist next to the leader that can convert it
-     106 / 107    neutral next to my / the enemy leader
-Net: shared feature transformer 1746 -> H for both perspectives, SCReLU, 2H -> one logit
+  obstacle features  1820 + cell                           91
+Net: shared feature transformer 1911 -> H for both perspectives, SCReLU, 2H -> one logit
 per output bucket (bucket = plies left: >70, >30, >10, rest).
-Output file: int16 W[1746][H], int16 B[H], int16 O[buckets][2][H], int32 OB[buckets]
-(QA=255, QB=64; rows of W: units, obstacles, relational), the layout bot.cpp loads with CW_NET / embeds for submission.
+Output file: int16 W[1911][H], int16 B[H], int16 O[buckets][2][H], int32 OB[buckets]
+(QA=255, QB=64), the layout bot.cpp loads with CW_NET / embeds for submission.
 
   train.py -o tools/nets/n0.bin 'data/g0_*.bin' [--hidden 32] [--epochs 20] [--lam 0.6]
 """
@@ -29,9 +24,8 @@ REC = np.dtype([("walls", "u1", 12), ("unit", "<u2", 14), ("turn", "u1"), ("resu
                 ("flags", "u1"), ("score", "<i2"), ("pad", "u1", 2)])
 QA, QB = 255, 64
 W_, H_, NC = 13, 7, 91
-NUF = 17 * NC             # unit features; index NUF is the zero padding row (dead unit)
-NT = 108                  # relational features (see threat_feats)
-NF = NUF + NC + NT
+NUF = 5 * 4 * NC          # unit features; index NUF is the zero padding row (dead unit)
+NF = NUF + NC
 HPB = [0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3]
 
 
@@ -41,119 +35,24 @@ class Net(nn.Module):
         self.h, self.nb = h, buckets
         self.emb = nn.Embedding(NUF + 1, h, padding_idx=NUF)
         self.wall = nn.Linear(NC, h)            # its bias is the feature transformer bias
-        self.thr = nn.Linear(NT, h, bias=False)
         self.out = nn.Linear(2 * h, buckets)
         nn.init.uniform_(self.emb.weight, -0.1, 0.1)
         nn.init.uniform_(self.wall.weight, -0.05, 0.05)
-        nn.init.uniform_(self.thr.weight, -0.05, 0.05)
         nn.init.constant_(self.wall.bias, 0.1)
         with torch.no_grad():
             self.emb.weight[NUF].zero_()
 
-    def acc(self, idx, walls, thr):
-        return torch.clamp(self.emb(idx).sum(1) + self.wall(walls) + self.thr(thr), 0, 1) ** 2
+    def acc(self, idx, walls):
+        return torch.clamp(self.emb(idx).sum(1) + self.wall(walls), 0, 1) ** 2
 
-    def forward(self, ia, wa, ta, ib, wb, tb, bk):
-        z = self.out(torch.cat([self.acc(ia, wa, ta), self.acc(ib, wb, tb)], dim=1))
+    def forward(self, ia, wa, ib, wb, bk):
+        z = self.out(torch.cat([self.acc(ia, wa), self.acc(ib, wb)], dim=1))
         return z.gather(1, bk[:, None]).squeeze(1)
-
-
-def line_cells(a, b):
-    """Cells strictly between shooter cell a and target cell b (Board.checkBulletPath)."""
-    fx, fy, tx, ty = a % W_, a // W_, b % W_, b // W_
-    fwd = fy < ty
-    x0, y0, x1, y1 = (fx, fy, tx, ty) if fwd else (tx, ty, fx, fy)
-    dx, dy = abs(x1 - x0), abs(y1 - y0)
-    sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
-    err, cx, cy, out = dx - dy, x0, y0, []
-    while True:
-        e2 = 2 * err
-        if e2 > -dy:
-            err -= dy; cx += sx
-        if e2 < dx:
-            err += dx; cy += sy
-        if cx == x1 and cy == y1:
-            break
-        out.append(cy * W_ + cx)
-    return out
-
-
-def path_tables():
-    P = np.full((NC, NC, 5), NC, dtype=np.int64)        # NC = dummy always-free cell
-    D = np.zeros((NC, NC), dtype=np.int64)
-    for a in range(NC):
-        for b in range(NC):
-            D[a, b] = abs(a % W_ - b % W_) + abs(a // W_ - b // W_)
-            if a != b and D[a, b] <= 6:
-                c = line_cells(a, b)
-                P[a, b, :len(c)] = c
-    return P, D
-
-
-def make_feats(dev, U, WL, T, nbk=4):
-    """Returns feats(idx, yflip) -> (unit idx, walls, relational) x 2 perspectives + bucket, built on `dev`."""
-    hpb = torch.tensor(HPB, device=dev)
-    bits = torch.tensor([[(v >> i) & 1 for i in range(8)] for v in range(256)], dtype=torch.float32, device=dev)
-    Pn, Dn = path_tables()
-    PT, DT = torch.from_numpy(Pn).to(dev), torch.from_numpy(Dn).to(dev)
-    isLeader = (torch.arange(14, device=dev) < 2)[None, :]
-    uid = torch.arange(14, device=dev)[None, :]
-
-    def feats(idx, yflip):
-        u = U[idx].long()
-        pos, hp, own = u & 127, (u >> 7) & 15, (u >> 11) & 3
-        x, y = pos % W_, pos // W_
-        turn = T[idx].long()
-        walls = bits[WL[idx].long()].reshape(-1, 96)[:, :NC].reshape(-1, H_, W_)
-        B = len(idx)
-        # relational facts, computed on the true geometry (before any mirroring)
-        alive = hp > 0
-        occ = torch.cat([walls.reshape(B, NC), torch.zeros(B, 1, device=dev)], 1)
-        occ.scatter_(1, torch.where(alive, pos, NC), 1.0)
-        occ[:, NC] = 0
-        ps, pt = pos[:, :, None].expand(B, 14, 14), pos[:, None, :].expand(B, 14, 14)
-        dist = DT[ps, pt]
-        clear = occ.gather(1, PT[ps, pt].reshape(B, -1)).reshape(B, 14, 14, 5).sum(-1) == 0
-        shooter = (alive & (own < 2) & ~isLeader)[:, :, None]
-        target = (alive & (own < 2))[:, None, :]
-        valid = shooter & target & (own[:, :, None] != own[:, None, :]) & (dist >= 1) & (dist <= 6) & clear
-        top2 = ((7 - dist) * valid).topk(2, dim=1).values            # (B, 2, 14): best two shots on each unit
-        d1, d12 = top2[:, 0], top2[:, 0] + top2[:, 1]
-        adj = alive[:, :, None] & alive[:, None, :] & (dist == 1)       # [leader l, unit t]
-        if yflip is not None:
-            y = torch.where(yflip[:, None], H_ - 1 - y, y)
-            walls = torch.where(yflip[:, None, None], walls.flip(1), walls)
-        out = []
-        for other in (0, 1):
-            p = ((turn & 1) ^ other)[:, None]                 # perspective player
-            xx = torch.where(p == 1, W_ - 1 - x, x)
-            typ = torch.where(isLeader, (uid != p).long(), torch.where(own == p, 2, torch.where(own == 2, 4, 3)))
-            f = torch.where(typ == 4, 16, typ * 4 + hpb[hp]) * NC + y * W_ + xx
-            f = torch.where(hp > 0, f, NUF)
-            wl = torch.where((p == 1)[:, :, None], walls.flip(2), walls).reshape(-1, NC)
-            TH = torch.zeros(B, NT + 1, device=dev)
-            one = torch.ones(B, 14, device=dev)
-            fire = d1 > 0
-            TH.scatter_add_(1, torch.where(fire, (typ * 4 + hpb[hp]) * 6 + d1 - 1, NT), one)
-            TH.scatter_add_(1, torch.where(fire & (d1 >= hp), 96 + typ, NT), one)
-            TH.scatter_add_(1, torch.where(fire & (d1 < hp) & (d12 >= hp), 100 + typ, NT), one)
-            for l in (0, 1):
-                near = adj[:, l, :] & ~isLeader & (own != l)
-                ci = torch.where(own == 2, 106 + (p != l).long(), 104 + (own != p).long())
-                TH.scatter_add_(1, torch.where(near, ci, NT), one)
-            out += [f, wl, TH[:, :NT]]
-        left = 150 - turn
-        bk = (left <= 70).long() + (left <= 30).long() + (left <= 10).long()
-        if nbk != 4:
-            bk = bk * 0
-        return (*out, bk)
-    return feats
 
 
 def export(model, path):
     h = model.h
-    w = np.concatenate([model.emb.weight.detach().cpu().numpy()[:NUF], model.wall.weight.detach().cpu().numpy().T,
-                        model.thr.weight.detach().cpu().numpy().T])
+    w = np.concatenate([model.emb.weight.detach().cpu().numpy()[:NUF], model.wall.weight.detach().cpu().numpy().T])
     w = np.round(w * QA).astype(np.int16)                                                   # [NF][H]
     b = np.round(model.wall.bias.detach().cpu().numpy() * QA).astype(np.int16)              # [H]
     o = np.round(model.out.weight.detach().cpu().numpy().reshape(model.nb, 2, h) * QB).astype(np.int16)
@@ -200,7 +99,35 @@ def main():
     Y = torch.from_numpy(target).to(dev)
     R = torch.from_numpy(res).to(dev)
     del data
-    feats = make_feats(dev, U, WL, T, a.buckets)
+    hpb = torch.tensor(HPB, device=dev)
+    bits = torch.tensor([[(v >> i) & 1 for i in range(8)] for v in range(256)], dtype=torch.float32, device=dev)
+    isLeader = (torch.arange(14, device=dev) < 2)[None, :]
+    uid = torch.arange(14, device=dev)[None, :]
+    nbk = a.buckets
+
+    def feats(idx, yflip):
+        u = U[idx].long()
+        pos, hp, own = u & 127, (u >> 7) & 15, (u >> 11) & 3
+        x, y = pos % W_, pos // W_
+        turn = T[idx].long()
+        walls = bits[WL[idx].long()].reshape(-1, 96)[:, :NC].reshape(-1, H_, W_)
+        if yflip is not None:
+            y = torch.where(yflip[:, None], H_ - 1 - y, y)
+            walls = torch.where(yflip[:, None, None], walls.flip(1), walls)
+        out = []
+        for other in (0, 1):
+            p = ((turn & 1) ^ other)[:, None]                 # perspective player
+            xx = torch.where(p == 1, W_ - 1 - x, x)
+            typ = torch.where(isLeader, (uid != p).long(), torch.where(own == p, 2, torch.where(own == 2, 4, 3)))
+            f = (typ * 4 + hpb[hp]) * NC + y * W_ + xx
+            f = torch.where(hp > 0, f, NUF)
+            wl = torch.where((p == 1)[:, :, None], walls.flip(2), walls).reshape(-1, NC)
+            out += [f, wl]
+        left = 150 - turn
+        bk = (left <= 70).long() + (left <= 30).long() + (left <= 10).long()
+        if nbk != 4:
+            bk = bk * 0
+        return (*out, bk)
 
     model = Net(a.hidden, a.buckets).to(dev)
     if a.init:
@@ -241,7 +168,6 @@ def main():
                 if a.wclip:
                     model.emb.weight.clamp_(-a.wclip, a.wclip)
                     model.wall.weight.clamp_(-a.wclip, a.wclip)
-                    model.thr.weight.clamp_(-a.wclip, a.wclip)
                 run += loss.detach()
         vr, vt = evaluate()
         print(f"epoch {ep + 1}/{a.epochs} train {float(run) / nb:.4f} val(result) {vr:.4f} val(target) {vt:.4f} ({time.time() - t0:.0f}s)", flush=True)
