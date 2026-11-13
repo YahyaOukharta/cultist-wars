@@ -30,6 +30,9 @@ static const Move NOMOVE = 0xFFFF;
 #ifndef MS_FIRST
 #define MS_FIRST 850
 #endif
+#ifndef TM_PCT       // no new iteration once this share of the turn's budget is used
+#define TM_PCT 60
+#endif
 #ifndef TT_BITS
 #define TT_BITS 21
 #endif
@@ -651,7 +654,7 @@ static Move think(const State& root, double budgetMs) {
         }
         if (stopped) break;
         if (abs(prev) > MATE - 400) break;
-        if (!nodeLimit && chrono::steady_clock::now() - t0 > (deadline - t0) * 6 / 10) break;
+        if (!nodeLimit && chrono::steady_clock::now() - t0 > (deadline - t0) * TM_PCT / 100) break;
     }
     info.nodes = nodes;
     info.ms = chrono::duration<double, milli>(chrono::steady_clock::now() - t0).count();

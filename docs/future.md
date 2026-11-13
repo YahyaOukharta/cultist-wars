@@ -4,6 +4,24 @@ What to try next, ordered by expected gain per unit of work. Sources are at the 
 "Measured elsewhere" numbers come from other games and engines; nothing here is proven
 for Cultist Wars until it passes a gate match.
 
+## State after v2.3
+
+Rank 3. Measured flat: net width, relational inputs, search constants, more self-play
+generations at the same depth (+15 for the last one). Still open, in the order they will
+be tried:
+
+- [ ] **Second seat against the top three** (1–7–1 in the replay suite): the wall.
+- [ ] **Deeper teacher**: generations searched at 60k–100k nodes per move; a net trained
+  only on the 20k-node generations (dropping the 25M positions of handcrafted-eval games).
+- [ ] **Time**: the search uses 34 of 44 ms on average (`TM_PCT`); real-time test running.
+- [ ] **Holding won first-seat games**: 8 of 11 first-seat losses of v2.2 came from +1000
+  or better and turned after turn 84 (rotation of damaged units, focused fire).
+- [ ] Our arena battles (92k positions against real opponents) as a validation set and as
+  weighted training data.
+
+The sections below are the original research notes; items already tried are in
+[search.md](search.md) and [nnue.md](nnue.md).
+
 ## 1. Neural evaluation (in progress)
 
 - [ ] First net: 1911 inputs → 32 hidden, 4 output buckets, trained on generation 0

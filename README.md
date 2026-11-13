@@ -1,8 +1,22 @@
 # Cultist Wars bot
 
 A bot for the [CodinGame Cultist Wars arena](https://www.codingame.com/multiplayer/bot-programming/cultist-wars):
-an exact simulator of the referee (including its "random" neutral moves) and an alpha-beta
-search, in one C++ file. Built with the same method as the Breakthrough bot
+an exact simulator of the referee (including its "random" neutral moves), an alpha-beta
+search and a small NNUE-style neural evaluation trained from self-play, in one C++ file
+under the 100k-character limit.
+
+**Result so far:** rank **3 / 401** on 2026-11-13 (`yhyoxx`, v2.3), from rank 181 the same
+morning.
+
+| Stage | Arena score | Rank |
+|---|---|---|
+| 2022 submission | 22.6 (Bronze) | 181 |
+| Exact simulator + alpha-beta, handcrafted eval (v1.0) | 21.6 (Legend) | 9 |
+| First net, 32 hidden (v2.0) | 26.9 | 5 |
+| 64 hidden, generation 1 (v2.1) | 28.9 | 4 |
+| + deep-search data (v2.2) | 29.75 | 4 |
+| Generation 3 + search changes (v2.3) | 29.96 at 87% of its games | 3 |
+ Built with the same method as the Breakthrough bot
 (`~/Desktop/breakthrough`): native referee → local league → engine → search → neural eval.
 
 Status and version table: [docs/history.md](docs/history.md).
@@ -26,10 +40,10 @@ make                                            # build/bot and build/referee
 ./build/referee build/bot build/bot -g 20 -n 20000 -v   # self-play, 20k nodes per move
 python3 tools/league.py add v1.1                # freeze bot.cpp as a version
 python3 tools/league.py match v1.1 v1.0 -g 400  # gate match
-python3 tools/pack.py -o out/v1.1.cpp           # single-file submission
-python3 tools/cg.py test out/v1.1.cpp boss      # test game on CodinGame, log saved
+python3 tools/pack.py -n tools/nets/n3a.bin -H 64 -o out/v2.3.cpp   # single-file submission with the net
+python3 tools/cg.py test out/v2.3.cpp           # test game on CodinGame, log saved
 python3 tools/checklog.py arena/logs/*.log      # exactness gate on real logs
-python3 tools/cg.py submit out/v1.1.cpp
+python3 tools/cg.py submit out/v2.3.cpp         # also mirrors the code into the IDE
 ```
 
 ## Layout
@@ -43,5 +57,10 @@ python3 tools/cg.py submit out/v1.1.cpp
 | `tools/cg.py` | CodinGame API: test games, submit, progress, opponents |
 | `tools/checklog.py` | Replays CodinGame logs through the simulator |
 | `tools/arena.py` | Archive of our arena battles, score per opponent |
+| `tools/gauntlet.py` | Candidates against real arena bots, both seats |
+| `tools/mapgen.py`, `tools/arena_data.py` | Rebuild our arena battles from seed + moves: training records, loss analysis |
+| `tools/train.py` | PyTorch trainer, exports the quantized net |
+| `tools/kaggle_gen.py`, `kaggle_train.py`, `kaggle_match.py` | Data generation, training and gate matches on Kaggle |
+| `tools/nets/` | Trained nets |
 | `versions/` | Every submitted version |
-| `docs/` | [engine](docs/engine.md), [workflow](docs/workflow.md), [history](docs/history.md) |
+| `docs/` | [engine](docs/engine.md), [search](docs/search.md), [nnue](docs/nnue.md), [workflow](docs/workflow.md), [history](docs/history.md), [roadmap](docs/future.md) |

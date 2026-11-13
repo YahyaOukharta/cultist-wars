@@ -12,7 +12,8 @@ the arena).
 | v1.1 | futility, late move pruning, null move (a real WAIT), aspiration, stronger LMR | +129 Elo at 100k nodes, +91 at 50 ms | ~21.5 (replaced at 75%) | 9 |
 | v2.0 | first net: 1911 inputs → 32 hidden, 8.4M positions played by v1.1 | +206 Elo at 50 ms; gauntlet 56% | 26.62 → 26.91 | 6 → 5 |
 | v2.1 | 64 hidden, generation 1: 25.6M positions by v1.1 + 11.7M by the first net | +144 Elo at 20k nodes; gauntlet 79% | 28.36 → 28.9 | 4 |
-| v2.2 | + 10M positions searched at 20k nodes per move (47M in total) | +46 Elo at 20k nodes; gauntlet 85% (40 games) | **29.75** | **4** |
+| v2.2 | + 10M positions searched at 20k nodes per move (47M in total) | +46 Elo at 20k nodes; gauntlet 85% (40 games) | 29.75 | 4 |
+| v2.3 | generation-3 net (70M positions); reverse futility, shots in quiescence, leader-threat moves | +85 Elo at 20k nodes, +68 at 50 ms; 10–0–2 against the top 3 | **29.96 at 87%** | **3** |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
@@ -49,7 +50,8 @@ the arena).
 | n2a | 58M gen 0–2 | 64 | n1x | +27 |
 | n2w | 58M | 128 | n2a | +24, 14% slower |
 | n1t / n2t (relational inputs: units under fire, convertible units) | 37M / 58M | 64 | n1a / n2a | −5 / −16, 27% slower |
-| n3a | 70M gen 0–3 | 64 | n1x | +32 |
+| n3a (**v2.3**) | 70M gen 0–3 | 64 | n1x | +32 |
+| n4a | 80M gen 0–4 | 64 | n3a | +15 |
 
 ## What the arena battles say (676 games rebuilt from seed + moves)
 
