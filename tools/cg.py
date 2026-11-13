@@ -2,7 +2,7 @@
 """CodinGame API helper for Cultist Wars.
 
   cg.py test SRC [OPPONENT] [--replay GAME_ID]   play a test game, save the log to arena/logs/, print the result
-  cg.py submit SRC                               submit SRC to the arena
+  cg.py submit SRC                               submit SRC to the arena and mirror it into the IDE
   cg.py progress                                 rank / score / league of the current submission
   cg.py opponents                                players that can be used as test opponents
   cg.py top [N]                                  leaderboard
@@ -39,8 +39,10 @@ def call(path, body=None, raw=False):
     sys.exit("gave up: " + path)
 
 
-def test(src, opp="default", replay=None):
+def test(src, opp="default", replay=None, ide=False):
     body = {"language": "C++", "code": open(src, encoding="utf-8").read()}
+    if ide:   # also make this the code of the CodinGame IDE (overwrites what is there)
+        body["overwrite_ide_code"] = True
     if replay:
         body["replay_game_id"] = int(replay)
     else:
@@ -73,6 +75,7 @@ def main():
     elif a[0] == "submit":
         r = call(f"/puzzles/{PUZ}/submissions", {"language": "C++", "code": open(a[1], encoding="utf-8").read()})
         print(json.dumps({k: v for k, v in r.items() if k != "limits"}), r.get("limits", {}).get("submits"))
+        test(a[1], "default", ide=True)   # mirror the submitted code into the IDE
     elif a[0] == "progress":
         r = call(f"/puzzles/{PUZ}/progress")
         print(json.dumps({k: v for k, v in r.items() if k not in ("limits", "league_history")}))

@@ -37,16 +37,16 @@ static const Move NOMOVE = 0xFFFF;
 #define LMR 1
 #endif
 #ifndef LMR_DIV
-#define LMR_DIV 2.0
+#define LMR_DIV 1.1
 #endif
 #ifndef QMAX
 #define QMAX 6
 #endif
 #ifndef ASP          // aspiration window half-width (0 = off)
-#define ASP 0
+#define ASP 60
 #endif
 #ifndef NMP          // null move (a real WAIT) reduction base (0 = off)
-#define NMP 0
+#define NMP 2
 #endif
 #ifndef RFP          // reverse futility margin per depth (0 = off)
 #define RFP 0
@@ -55,10 +55,10 @@ static const Move NOMOVE = 0xFFFF;
 #define RFP_MAXD 4
 #endif
 #ifndef FUT          // futility margin per depth, depth <= 2 (0 = off)
-#define FUT 0
+#define FUT 450
 #endif
 #ifndef LMP          // late move pruning base count (0 = off)
-#define LMP 0
+#define LMP 2
 #endif
 #ifndef LMP_D
 #define LMP_D 3
@@ -85,6 +85,14 @@ static const Move NOMOVE = 0xFFFF;
 #define NEUD 25
 #endif
 
+#ifndef NN_H         // hidden size of the neural evaluation (0 = handcrafted evaluation)
+#define NN_H 0
+#endif
+#ifndef NN_SCALE     // search units per logit; equals the training score scale (train.py --k)
+#define NN_SCALE 600
+#endif
+//@NET_DATA@
+
 static const int MATE = 30000, INF = 32000;
 
 // ---- static tables ---------------------------------------------------------------------
@@ -100,6 +108,28 @@ static U128 rangeMask[NC];           // cells within manhattan distance 1..6
 static U64 zPos[NU][NC], zHp[NU][11], zOwn[NU][3], zTurn[MAXTURN + 2];
 
 static inline U128 bit(int c) { return (U128)1 << c; }
+
+#if NN_H
+// ---- neural evaluation: weights and feature indexing (see tools/train.py) -----------------
+enum { NN_B = 4, NUF = 5 * 4 * NC, NF = NUF + NC, QA = 255, QB = 64 };
+static int16_t nnW[NF][NN_H], nnBias[NN_H], nnO[NN_B][2][NN_H];
+static int32_t nnOB[NN_B];
+static int16_t nnBase[2][NN_H];   // bias + obstacle features of this map, per perspective
+static const int8_t HPB[11] = {0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 3};
+static inline int feat(int p, int u, int own, int hp, int pos) {
+    int typ = u < 2 ? (u != p) : own == p ? 2 : own == 2 ? 4 : 3;
+    int sq = p ? pos / W * W + (W - 1 - pos % W) : pos;
+    return (typ * 4 + HPB[hp]) * NC + sq;
+}
+static bool nnLoaded;
+static void nnRead(const int16_t* v) {   // v: the int16 stream of the .bin file, biases split in two
+    memcpy(nnW, v, sizeof nnW); v += NF * NN_H;
+    memcpy(nnBias, v, sizeof nnBias); v += NN_H;
+    memcpy(nnO, v, sizeof nnO); v += NN_B * 2 * NN_H;
+    for (int b = 0; b < NN_B; b++) nnOB[b] = (int32_t)v[2 * b] * 16384 + v[2 * b + 1];
+    nnLoaded = true;
+}
+#endif
 
 // Bullet line exactly as Board.checkBulletPath: Bresenham drawn from the lower-y end
 // (from the target when y is equal). Returns the cells strictly between, shooter side first.
@@ -161,6 +191,16 @@ static void initTables(const char grid[H][W + 2]) {
             pathLen[a][b] = (int8_t)k;
         }
     }
+#if NN_H
+    for (int p = 0; p < 2; p++) {
+        memcpy(nnBase[p], nnBias, sizeof nnBias);
+        for (int c = 0; c < NC; c++)
+            if (wallAt[c]) {
+                const int16_t* w = nnW[NUF + (p ? c / W * W + (W - 1 - c % W) : c)];
+                for (int i = 0; i < NN_H; i++) nnBase[p][i] += w[i];
+            }
+    }
+#endif
     U64 x = 0x9E3779B97F4A7C15ULL;
     auto r64 = [&]() { x ^= x << 13; x ^= x >> 7; x ^= x << 17; return x; };
     for (int u = 0; u < NU; u++) {
@@ -182,7 +222,22 @@ struct State {
     int8_t cnt[2];
     int8_t pos[NU], hp[NU], own[NU];
     int8_t at[NC];     // unit id on the cell, -1 if none
+#if NN_H
+    int16_t acc[2][NN_H];   // first-layer sums, perspective of player 0 and 1
+#endif
 };
+#if NN_H
+static inline void accAdd(State& s, int u, int own, int hp, int pos, int sign) {
+    for (int p = 0; p < 2; p++) {
+        const int16_t* w = nnW[feat(p, u, own, hp, pos)];
+        int16_t* a = s.acc[p];
+        if (sign > 0) for (int i = 0; i < NN_H; i++) a[i] += w[i];
+        else for (int i = 0; i < NN_H; i++) a[i] -= w[i];
+    }
+}
+#else
+static inline void accAdd(State&, int, int, int, int, int) {}
+#endif
 
 static inline U64 key(const State& s) {
     return s.hash ^ ((U64)s.seed * 0xD6E8FEB86659FD93ULL) ^ zTurn[s.turn];
@@ -200,9 +255,15 @@ static void rehash(State& s) {
         s.hash ^= zHp[u][s.hp[u]] ^ zOwn[u][s.own[u]];
         if (s.hp[u] > 0) { s.hash ^= zPos[u][s.pos[u]]; s.occ |= bit(s.pos[u]); s.at[s.pos[u]] = (int8_t)u; }
     }
+#if NN_H
+    memcpy(s.acc, nnBase, sizeof nnBase);
+    for (int u = 0; u < NU; u++) if (s.hp[u] > 0) accAdd(s, u, s.own[u], s.hp[u], s.pos[u], 1);
+#endif
 }
 static inline void moveUnit(State& s, int u, int to) {
     int from = s.pos[u];
+    accAdd(s, u, s.own[u], s.hp[u], from, -1);
+    accAdd(s, u, s.own[u], s.hp[u], to, 1);
     s.hash ^= zPos[u][from] ^ zPos[u][to];
     s.occ ^= bit(from) | bit(to);
     s.at[from] = -1; s.at[to] = (int8_t)u; s.pos[u] = (int8_t)to;
@@ -232,6 +293,8 @@ static void apply(State& s, Move m) {
         if (h >= 0) {
             int nh = max(0, s.hp[h] - (7 - mdist[s.pos[u]][s.pos[h]]));
             s.hash ^= zHp[h][s.hp[h]] ^ zHp[h][nh];
+            accAdd(s, h, s.own[h], s.hp[h], s.pos[h], -1);
+            if (nh) accAdd(s, h, s.own[h], nh, s.pos[h], 1);
             s.hp[h] = (int8_t)nh;
             if (!nh) {
                 deadCell = s.pos[h];   // the body blocks its tile until the end of the turn
@@ -246,6 +309,8 @@ static void apply(State& s, Move m) {
         int me = s.own[u];
         if (s.own[a] != 2) s.cnt[s.own[a]]--;
         s.hash ^= zOwn[a][s.own[a]] ^ zOwn[a][me];
+        accAdd(s, a, s.own[a], s.hp[a], s.pos[a], -1);
+        accAdd(s, a, me, s.hp[a], s.pos[a], 1);
         s.own[a] = (int8_t)me; s.cnt[me]++;
         break;
     }
@@ -353,7 +418,24 @@ static int evalP0(const State& s) {
     }
     return sc;
 }
+#if NN_H
+static inline int nnEval(const State& s) {
+    int stm = s.turn & 1, left = MAXTURN - s.turn, b = (left <= 70) + (left <= 30) + (left <= 10);
+    const int16_t *a0 = s.acc[stm], *a1 = s.acc[stm ^ 1], *o0 = nnO[b][0], *o1 = nnO[b][1];
+    int sum = 0;
+    for (int i = 0; i < NN_H; i++) {
+        int v = min(max((int)a0[i], 0), (int)QA), w = min(max((int)a1[i], 0), (int)QA);
+        sum += v * o0[i] * v + w * o1[i] * w;
+    }
+    return (int)((long long)(sum / QA + nnOB[b]) * NN_SCALE / (QA * QB));
+}
+static inline int evalStm(const State& s) {
+    if (!nnLoaded) return (s.turn & 1) ? -evalP0(s) : evalP0(s);
+    return nnEval(s);
+}
+#else
 static inline int evalStm(const State& s) { return (s.turn & 1) ? -evalP0(s) : evalP0(s); }
+#endif
 static inline int terminal(const State& s, int ply) {
     int d = s.cnt[0] - s.cnt[1];
     if (s.turn & 1) d = -d;
@@ -538,6 +620,28 @@ static Move think(const State& root, double budgetMs) {
     return best;
 }
 
+static void initNet() {
+#if NN_H
+#ifdef NN_EMBED
+    static int16_t buf[sizeof(NN_DATA) / sizeof(char16_t)];
+    int n = (int)(sizeof(NN_DATA) / sizeof(char16_t)) - 1;
+    for (int i = 0; i < n; i++) buf[i] = (int16_t)((int)NN_DATA[i] - NN_OFF);
+    nnRead(buf);
+#endif
+#ifdef LOCAL
+    if (const char* path = getenv("CW_NET")) {
+        FILE* f = fopen(path, "rb");
+        size_t n16 = (size_t)NF * NN_H + NN_H + NN_B * 2 * NN_H;
+        static int16_t buf[NF * NN_H + NN_H + NN_B * 2 * NN_H + 2 * NN_B];
+        int32_t ob[NN_B];
+        if (!f || fread(buf, 2, n16, f) != n16 || fread(ob, 4, NN_B, f) != NN_B) { fprintf(stderr, "cannot load net %s\n", path); exit(2); }
+        fclose(f);
+        for (int b = 0; b < NN_B; b++) { buf[n16 + 2 * b] = (int16_t)(ob[b] >> 14); buf[n16 + 2 * b + 1] = (int16_t)(ob[b] & 16383); }
+        nnRead(buf);
+    }
+#endif
+#endif
+}
 static void initSearch() {
     tt = (TTE*)calloc(1ULL << TT_BITS, sizeof(TTE));
     memset(tt, 0, sizeof(TTE) << TT_BITS);   // touch every page before the first timed turn
@@ -598,8 +702,144 @@ static bool syncSecond(const Obs& o, State& out) {
     return false;
 }
 
+#ifdef LOCAL
+#include <random>
+#include <vector>
+// ---- map generation (Board.initLaymen + initExtraObstacles, with our own RNG) ----------------
+struct Map { char grid[H][W + 2]; Obs start; };
+static Map makeMap(mt19937& rng) {
+    Map mp;
+    memset(&mp, 0, sizeof mp);
+    bool used[NC] = {false};
+    for (int p = 0; p < 2; p++) { mp.start.hp[p] = 10; mp.start.own[p] = (int8_t)p; }
+    mp.start.pos[0] = 3 * W; mp.start.pos[1] = 3 * W + W - 1;
+    used[3 * W] = used[3 * W + W - 1] = true;
+    for (int i = 0; i < 6; i++) {
+        int c;
+        do c = (int)(rng() % H) * W + 1 + (int)(rng() % 5); while (used[c]);
+        int mc = c / W * W + (W - 1 - c % W);
+        used[c] = used[mc] = true;
+        mp.start.pos[2 + i] = (int8_t)c; mp.start.pos[8 + i] = (int8_t)mc;
+        mp.start.hp[2 + i] = mp.start.hp[8 + i] = 10;
+        mp.start.own[2 + i] = mp.start.own[8 + i] = 2;
+    }
+    uniform_real_distribution<double> u01(0, 1);
+    for (;;) {
+        bool wl[NC] = {false};
+        int count = 0;
+        for (int col = 0; col < (W - 1) / 2; col++)
+            for (int row = 0; row < H; row++)
+                if (!used[row * W + col] && u01(rng) < 0.2) { wl[row * W + col] = wl[row * W + W - 1 - col] = true; count += 2; }
+        int q[NC], qh = 0, qt = 0, reached = 0;
+        bool seen[NC] = {false};
+        q[qt++] = 3 * W; seen[3 * W] = true;
+        while (qh < qt) {
+            int c = q[qh++];
+            reached++;
+            static const int DX[4] = {0, 1, 0, -1}, DY[4] = {-1, 0, 1, 0};
+            for (int d = 0; d < 4; d++) {
+                int x = c % W + DX[d], y = c / W + DY[d];
+                if (x < 0 || x >= W || y < 0 || y >= H) continue;
+                int nb = y * W + x;
+                if (!wl[nb] && !seen[nb]) { seen[nb] = true; q[qt++] = nb; }
+            }
+        }
+        if (reached != NC - count) continue;
+        for (int y = 0; y < H; y++) {
+            for (int x = 0; x < W; x++) mp.grid[y][x] = wl[y * W + x] ? 'x' : '.';
+            mp.grid[y][W] = 0;
+        }
+        return mp;
+    }
+}
+
+// ---- training data: CW_GEN=games:nodes:seed:file ------------------------------------------------
+// Self-play on random maps, 0..8 random opening plies, then both sides search `nodes` nodes.
+// One 48-byte record per searched position.
+struct Rec {
+    uint8_t walls[12];     // bit c = obstacle on cell c
+    uint16_t unit[NU];     // pos | hp << 7 | owner << 11 (hp 0 = dead)
+    uint8_t turn;          // player turn % 2 is to move
+    int8_t result;         // game result for the side to move: 1 / 0 / -1
+    int8_t margin;         // final unit difference for the side to move
+    uint8_t flags;         // bit 0: the move played is a shot or a conversion
+    int16_t score;         // search score for the side to move
+    uint8_t pad[2];
+};
+static void runGen(const char* spec) {
+    int games; long long nd; unsigned seed; char file[512];
+    if (sscanf(spec, "%d:%lld:%u:%511s", &games, &nd, &seed, file) != 4) { fprintf(stderr, "CW_GEN=games:nodes:seed:file\n"); exit(2); }
+    FILE* f = fopen(file, "wb");
+    if (!f) { perror(file); exit(2); }
+    mt19937 rng(seed);
+    initNet();
+    initSearch();
+    long long total = 0;
+    for (int g = 0; g < games; g++) {
+        Map mp = makeMap(rng);
+        initTables(mp.grid);
+        memset(tt, 0, sizeof(TTE) << TT_BITS);
+        memset(hist, 0, sizeof hist);
+        State s = fromObs(mp.start, 42, 0, nullptr);
+        int nOpen = (int)(rng() % 9);
+        vector<Rec> recs;
+        while (!over(s)) {
+            Move m;
+            if (s.turn < nOpen) {
+                Move mv[256]; int sc[256];
+                int n = gen(s, mv, sc, 0);
+                m = mv[rng() % (n > 1 ? n - 1 : 1)];   // WAIT is last: never picked when there is anything else
+            } else {
+                nodeLimit = nd;
+                m = think(s, 1e9);
+                Rec r;
+                memset(&r, 0, sizeof r);
+                for (int c = 0; c < NC; c++) if (wallAt[c]) r.walls[c >> 3] |= (uint8_t)(1 << (c & 7));
+                for (int u = 0; u < NU; u++) r.unit[u] = (uint16_t)((s.hp[u] > 0 ? s.pos[u] : 0) | s.hp[u] << 7 | s.own[u] << 11);
+                r.turn = (uint8_t)s.turn;
+                r.flags = mType(m) >= SHOOT;
+                r.score = (int16_t)max(-32000, min(32000, info.score));
+                recs.push_back(r);
+            }
+            apply(s, m);
+        }
+        int d = s.cnt[0] - s.cnt[1];
+        for (Rec& r : recs) {
+            int sd = (r.turn & 1) ? -d : d;
+            r.result = (int8_t)(sd > 0) - (int8_t)(sd < 0);
+            r.margin = (int8_t)sd;
+        }
+        fwrite(recs.data(), sizeof(Rec), recs.size(), f);
+        total += (long long)recs.size();
+    }
+    fclose(f);
+    fprintf(stderr, "%d games, %lld positions -> %s\n", games, total, file);
+}
+#endif
+
 #ifndef CW_LIB
 int main() {
+#ifdef LOCAL
+    if (getenv("CW_GEN")) { runGen(getenv("CW_GEN")); return 0; }
+#if NN_H
+    if (const char* path = getenv("CW_EVALCHECK")) {   // print the net's evaluation of the first records of a data file
+        initNet();
+        FILE* f = fopen(path, "rb");
+        Rec r;
+        for (int k = 0; k < 2000 && fread(&r, sizeof r, 1, f) == 1; k++) {
+            char grid[H][W + 2];
+            for (int c = 0; c < NC; c++) grid[c / W][c % W] = (r.walls[c >> 3] >> (c & 7) & 1) ? 'x' : '.';
+            initTables(grid);
+            Obs o;
+            for (int u = 0; u < NU; u++) { o.pos[u] = r.unit[u] & 127; o.hp[u] = (r.unit[u] >> 7) & 15; o.own[u] = (r.unit[u] >> 11) & 3; }
+            State s = fromObs(o, 42, r.turn, nullptr);
+            for (int u = 0; u < NU; u++) s.own[u] = o.own[u];
+            printf("%d\n", nnEval(s));
+        }
+        return 0;
+    }
+#endif
+#endif
     int myId, w, h;
     char grid[H][W + 2];
     if (scanf("%d", &myId) != 1) return 0;
@@ -607,6 +847,7 @@ int main() {
     if (scanf("%d %d", &w, &h) != 2) return 0;
     for (int y = 0; y < H; y++) if (scanf("%14s", grid[y]) != 1) return 0;
     for (int y = 0; y < H; y++) fprintf(stderr, "%s\n", grid[y]);
+    initNet();
     initTables(grid);
     initSearch();
     double msTurn = MS_TURN, msFirst = MS_FIRST;

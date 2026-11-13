@@ -11,7 +11,6 @@
 // Prints one JSON line per game with -v, then a JSON summary line.
 #define CW_LIB
 #include "../bot.cpp"
-#include <random>
 #include <vector>
 #include <fcntl.h>
 #include <poll.h>
@@ -106,54 +105,6 @@ static bool resolveAction(const State& s, int player, const string& line, Move& 
     return true;
 }
 
-// ---- map generation (Board.initLaymen + initExtraObstacles, with our own RNG) ----------------
-struct Map { char grid[H][W + 2]; Obs start; };
-static Map makeMap(mt19937& rng) {
-    Map mp;
-    memset(&mp, 0, sizeof mp);
-    bool used[NC] = {false};
-    for (int p = 0; p < 2; p++) { mp.start.hp[p] = 10; mp.start.own[p] = (int8_t)p; }
-    mp.start.pos[0] = 3 * W; mp.start.pos[1] = 3 * W + W - 1;
-    used[3 * W] = used[3 * W + W - 1] = true;
-    for (int i = 0; i < 6; i++) {
-        int c;
-        do c = (int)(rng() % H) * W + 1 + (int)(rng() % 5); while (used[c]);
-        int mc = c / W * W + (W - 1 - c % W);
-        used[c] = used[mc] = true;
-        mp.start.pos[2 + i] = (int8_t)c; mp.start.pos[8 + i] = (int8_t)mc;
-        mp.start.hp[2 + i] = mp.start.hp[8 + i] = 10;
-        mp.start.own[2 + i] = mp.start.own[8 + i] = 2;
-    }
-    uniform_real_distribution<double> u01(0, 1);
-    for (;;) {
-        bool wl[NC] = {false};
-        int count = 0;
-        for (int col = 0; col < (W - 1) / 2; col++)
-            for (int row = 0; row < H; row++)
-                if (!used[row * W + col] && u01(rng) < 0.2) { wl[row * W + col] = wl[row * W + W - 1 - col] = true; count += 2; }
-        int q[NC], qh = 0, qt = 0, reached = 0;
-        bool seen[NC] = {false};
-        q[qt++] = 3 * W; seen[3 * W] = true;
-        while (qh < qt) {
-            int c = q[qh++];
-            reached++;
-            static const int DX[4] = {0, 1, 0, -1}, DY[4] = {-1, 0, 1, 0};
-            for (int d = 0; d < 4; d++) {
-                int x = c % W + DX[d], y = c / W + DY[d];
-                if (x < 0 || x >= W || y < 0 || y >= H) continue;
-                int nb = y * W + x;
-                if (!wl[nb] && !seen[nb]) { seen[nb] = true; q[qt++] = nb; }
-            }
-        }
-        if (reached != NC - count) continue;
-        for (int y = 0; y < H; y++) {
-            for (int x = 0; x < W; x++) mp.grid[y][x] = wl[y * W + x] ? 'x' : '.';
-            mp.grid[y][W] = 0;
-        }
-        return mp;
-    }
-}
-
 // ---- bot processes -----------------------------------------------------------------------------
 struct Bot {
     pid_t pid = -1;
@@ -170,8 +121,8 @@ struct Bot {
             int dn = open("/dev/null", O_WRONLY);
             if (dn >= 0) dup2(dn, 2);
             for (int fd = 3; fd < 256; fd++) close(fd);
-            setenv("CW_MS", to_string(ms).c_str(), 1);
-            setenv("CW_FIRST_MS", to_string(firstMs).c_str(), 1);
+            setenv("CW_MS", to_string(ms - 6).c_str(), 1);            // same safety margins as the submission
+            setenv("CW_FIRST_MS", to_string(firstMs - 150).c_str(), 1);
             if (nodes > 0) setenv("CW_NODES", to_string(nodes).c_str(), 1); else unsetenv("CW_NODES");
             execl(path.c_str(), path.c_str(), (char*)0);
             _exit(127);
