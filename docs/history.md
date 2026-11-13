@@ -11,7 +11,8 @@ the arena).
 | v1.0 | exact simulator (neutral moves predicted), ID alpha-beta: PVS, TT, LMR, quiescence, handcrafted eval | | 21.62 (Bronze → Legend in one run) | 9 |
 | v1.1 | futility, late move pruning, null move (a real WAIT), aspiration, stronger LMR | +129 Elo at 100k nodes, +91 at 50 ms | ~21.5 (replaced at 75%) | 9 |
 | v2.0 | first net: 1911 inputs → 32 hidden, 8.4M positions played by v1.1 | +206 Elo at 50 ms; gauntlet 56% | 26.62 → 26.91 | 6 → 5 |
-| v2.1 | 64 hidden, generation 1: 25.6M positions by v1.1 + 11.7M by the first net | +144 Elo at 20k nodes; gauntlet 79% | **28.36** | **4** |
+| v2.1 | 64 hidden, generation 1: 25.6M positions by v1.1 + 11.7M by the first net | +144 Elo at 20k nodes; gauntlet 79% | 28.36 → 28.9 | 4 |
+| v2.2 | + 10M positions searched at 20k nodes per move (47M in total) | +46 Elo at 20k nodes; gauntlet 85% (40 games) | **29.75** | **4** |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
@@ -44,6 +45,28 @@ the arena).
 | n1b | 37.3M gen 0 + 1 | 32 | n0g | +105 |
 | n1a (**v2.1**) | 37.3M gen 0 + 1 | 64 | n0g | +144 |
 
+| n1x (**v2.2**) | 47.4M, incl. 10M at 20k nodes | 64 | n1a | +46 |
+| n2a | 58M gen 0–2 | 64 | n1x | +27 |
+| n2w | 58M | 128 | n2a | +24, 14% slower |
+| n1t / n2t (relational inputs: units under fire, convertible units) | 37M / 58M | 64 | n1a / n2a | −5 / −16, 27% slower |
+| n3a | 70M gen 0–3 | 64 | n1x | +32 |
+
+## What the arena battles say (676 games rebuilt from seed + moves)
+
+Score against the eight players above us, by seat:
+
+| | first seat | second seat |
+|---|---|---|
+| v1.0 | 41% | 19% |
+| v2.0 | 66% | 30% |
+| v2.1 | 69% | 38% |
+| v2.2 | 67% | 33% |
+
+The first player has a large edge in this game (57–68% in self-play too). v2.2's 37 losses
+to those players, searched again move by move: as second player we were never ahead in 23
+of 26; as first player 8 of 11 were lost from an evaluation of +1000 or more, turning only
+after turn 84.
+
 ## Gauntlet (test games against the 8 players above us, first seat, 24 games)
 
 | Bot | Score | vs top 3 |
@@ -51,7 +74,10 @@ the arena).
 | v2.0 net (n0c) | 56% | 1–5–3 |
 | n0c + leader-threat move handling | 56% | 1–5–1 |
 | n0g (64 hidden, gen 0 only) | 48% | 0–8–1 |
-| n1a (v2.1) | **79%** | 6–3–0 |
+| n1a (v2.1) | 79% | 6–3–0 |
+| n1t (relational inputs) | 81% | 6–2–1 |
+| n1x (v2.2), 40 games | **85%** | 10–2–3 |
+| n2a | 81% | 6–2–1 |
 
 ## Lessons so far
 
