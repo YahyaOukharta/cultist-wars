@@ -1,0 +1,14 @@
+# everything hidden except this file
+.*
+!.gitignore
+
+# build products and packed submissions (regenerate with make / tools/pack.py)
+build/
+out/
+league/bots/
+__pycache__/
+
+# third-party referee clone, arena dumps, training data
+referee-src/
+arena/
+data/
