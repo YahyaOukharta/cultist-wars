@@ -49,7 +49,7 @@ static const Move NOMOVE = 0xFFFF;
 #define NMP 2
 #endif
 #ifndef RFP          // reverse futility margin per depth (0 = off)
-#define RFP 0
+#define RFP 150
 #endif
 #ifndef RFP_MAXD
 #define RFP_MAXD 4
@@ -73,7 +73,7 @@ static const Move NOMOVE = 0xFFFF;
 #define NEUSHOT 0
 #endif
 #ifndef QDMG         // quiescence also searches shots on enemy units doing at least QDMG damage (0 = killing shots only)
-#define QDMG 0
+#define QDMG 1
 #endif
 #ifndef LMP_LIN      // late move pruning threshold LMP + LMP_LIN * depth instead of LMP + depth^2 (0 = off)
 #define LMP_LIN 0
