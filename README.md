@@ -63,4 +63,4 @@ python3 tools/cg.py submit out/v2.3.cpp         # also mirrors the code into the
 | `tools/kaggle_gen.py`, `kaggle_train.py`, `kaggle_match.py` | Data generation, training and gate matches on Kaggle |
 | `tools/nets/` | Trained nets |
 | `versions/` | Every submitted version |
-| `docs/` | [engine](docs/engine.md), [search](docs/search.md), [nnue](docs/nnue.md), [workflow](docs/workflow.md), [history](docs/history.md), [roadmap](docs/future.md) |
+| `docs/` | [**pipeline**](docs/pipeline.md) (how a change becomes a version), [engine](docs/engine.md), [search](docs/search.md), [nnue](docs/nnue.md), [workflow](docs/workflow.md) (tool reference), [history](docs/history.md), [roadmap](docs/future.md) |

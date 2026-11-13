@@ -5,7 +5,8 @@
   arena_data.py export OUT.bin [--top] [--sub ID]
                                  rebuild every position (map from the game seed, tools/mapgen.py;
                                  moves from the log) -> 48-byte records, result as label
-  arena_data.py games OUT.txt [--top] [--sub ID] [--only loss]
+  arena_data.py games OUT.txt [--top] [--sub ID] [--only loss] [--who NAME] [--opp-side]
+                                 (--opp-side: analyse the opponent's positions instead of ours)
                                  the same games as text, for `referee --analyze` (needs a net: CW_NET)
 A battle log has no board, only the seed and both players' outputs; the game is deterministic.
 --top keeps only games against the eight players above us.
@@ -45,10 +46,10 @@ def fetch():
             print(i, flush=True)
 
 
-def export(out, top, sub, only=None, seats=False):
+def export(out, top, sub, only=None, seats=False, opp_side=False, who=None):
     lines, n = [], 0
     for b in battles():
-        if (top and b["opponent"] not in TOP) or (sub and b["submission"] != sub) or (only and b["result"] != only):
+        if (top and b["opponent"] not in TOP) or (sub and b["submission"] != sub) or (only and b["result"] != only) or (who and b["opponent"] != who):
             continue
         p = os.path.join(LOGS, f"{b['game_id']}.log")
         if not os.path.exists(p):
@@ -60,7 +61,8 @@ def export(out, top, sub, only=None, seats=False):
             continue
         grid, units = mapgen.make_map(int(seed.group(1)))
         if seats:
-            lines.append(f"P {re.search(r'(\d) yhyoxx', log).group(1)} {b['game_id']}")
+            seat = int(re.search(r'(\d) yhyoxx', log).group(1))
+            lines.append(f"P {1 - seat if opp_side else seat} {b['game_id']}")
         lines.append("M " + " ".join(grid))
         lines.append("S 0 42 " + " ".join(f"{u},10,{x},{y},{u if u < 2 else 2}" for u, (x, y) in sorted(units.items())))
         for f in re.split(r"\nframe ", log)[1:]:
@@ -87,4 +89,5 @@ if __name__ == "__main__":
         fetch()
     else:
         export(a[1], "--top" in a, int(a[a.index("--sub") + 1]) if "--sub" in a else 0,
-               a[a.index("--only") + 1] if "--only" in a else None, a[0] == "games")
+               a[a.index("--only") + 1] if "--only" in a else None, a[0] == "games", "--opp-side" in a,
+               a[a.index("--who") + 1] if "--who" in a else None)

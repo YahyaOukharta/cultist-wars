@@ -1,4 +1,7 @@
-# Workflow
+# Workflow: tool reference
+
+The procedure these tools serve, with its gates and decision rules, is in
+[pipeline.md](pipeline.md).
 
 Rule: nothing is submitted unless it beats the current version in a gate match.
 
