@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--k", type=float, default=600.0, help="score scale for sigmoid(score/k)")
     ap.add_argument("--no-yflip", action="store_true", help="no up-down mirror augmentation")
     ap.add_argument("--wd", type=float, default=0.0)
+    ap.add_argument("--wclip", type=float, default=127 / 255, help="clip first-layer weights (int8 at QA=255); 0 = off")
     ap.add_argument("--init", help="float checkpoint (.pt) to continue from")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else
                     ("mps" if torch.backends.mps.is_available() else "cpu"))
@@ -164,6 +165,9 @@ def main():
             with torch.no_grad():
                 model.out.weight.clamp_(-1.98, 1.98)
                 model.emb.weight[NUF].zero_()
+                if a.wclip:
+                    model.emb.weight.clamp_(-a.wclip, a.wclip)
+                    model.wall.weight.clamp_(-a.wclip, a.wclip)
                 run += loss.detach()
         vr, vt = evaluate()
         print(f"epoch {ep + 1}/{a.epochs} train {float(run) / nb:.4f} val(result) {vr:.4f} val(target) {vt:.4f} ({time.time() - t0:.0f}s)", flush=True)

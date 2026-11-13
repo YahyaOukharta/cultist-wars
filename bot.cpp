@@ -89,7 +89,7 @@ static const Move NOMOVE = 0xFFFF;
 #define NN_H 0
 #endif
 #ifndef NN_SCALE     // search units per logit; equals the training score scale (train.py --k)
-#define NN_SCALE 600
+#define NN_SCALE 800
 #endif
 //@NET_DATA@
 
@@ -623,9 +623,20 @@ static Move think(const State& root, double budgetMs) {
 static void initNet() {
 #if NN_H
 #ifdef NN_EMBED
-    static int16_t buf[sizeof(NN_DATA) / sizeof(char16_t)];
-    int n = (int)(sizeof(NN_DATA) / sizeof(char16_t)) - 1;
-    for (int i = 0; i < n; i++) buf[i] = (int16_t)((int)NN_DATA[i] - NN_OFF);
+    // Embedded net: a bit stream, 15 bits per character. First-layer weights are int8,
+    // everything else int16 (see tools/pack.py).
+    static int16_t buf[NF * NN_H + NN_H + NN_B * 2 * NN_H + 2 * NN_B];
+    const char16_t* p = NN_DATA;
+    U64 acc = 0;
+    int nb = 0, k = 0;
+    auto byte = [&]() {
+        while (nb < 8) { acc |= (U64)(*p++ - NN_OFF) << nb; nb += 15; }
+        int v = (int)(acc & 255);
+        acc >>= 8; nb -= 8;
+        return v;
+    };
+    for (int i = 0; i < NF * NN_H; i++) buf[k++] = (int8_t)byte();
+    for (int i = 0; i < NN_H + NN_B * 2 * NN_H + 2 * NN_B; i++) { int lo = byte(); buf[k++] = (int16_t)(lo | byte() << 8); }
     nnRead(buf);
 #endif
 #ifdef LOCAL
