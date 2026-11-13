@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Turn our arena battles into training / validation records.
+
+  arena_data.py fetch            download the text log of every archived battle -> arena/battle_logs/
+  arena_data.py export OUT.bin [--top] [--sub ID]
+                                 rebuild every position (map from the game seed, tools/mapgen.py;
+                                 moves from the log) -> 48-byte records, result as label
+A battle log has no board, only the seed and both players' outputs; the game is deterministic.
+--top keeps only games against the eight players above us.
+"""
+import json, os, re, subprocess, sys, tempfile, time, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import mapgen
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOGS = os.path.join(ROOT, "arena", "battle_logs")
+TOKEN = open(os.path.expanduser("~/.config/codingame/token")).read().strip()
+TOP = {"aCat", "Noobkins", "MSz", "Zylo", "ziele", "KawattaTaido", "Pduhard-", "jacek"}
+
+
+def battles():
+    return [json.loads(l) for l in open(os.path.join(ROOT, "arena", "battles.jsonl")) if l.strip()]
+
+
+def fetch():
+    os.makedirs(LOGS, exist_ok=True)
+    todo = [b for b in battles() if not os.path.exists(os.path.join(LOGS, f"{b['game_id']}.log"))]
+    print(len(todo), "logs to download", flush=True)
+    for i, b in enumerate(todo):
+        req = urllib.request.Request(f"https://www.codingame.com/api/v1/games/{b['game_id']}", headers={"Authorization": "Bearer " + TOKEN})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                t = r.read().decode("utf-8")
+        except Exception as e:
+            print("skip", b["game_id"], e, flush=True)
+            time.sleep(5)
+            continue
+        if t.lstrip().startswith("{"):
+            t = json.loads(t).get("log", "")
+        open(os.path.join(LOGS, f"{b['game_id']}.log"), "w").write(t)
+        time.sleep(0.6)
+        if i % 100 == 0:
+            print(i, flush=True)
+
+
+def export(out, top, sub):
+    lines, n = [], 0
+    for b in battles():
+        if (top and b["opponent"] not in TOP) or (sub and b["submission"] != sub):
+            continue
+        p = os.path.join(LOGS, f"{b['game_id']}.log")
+        if not os.path.exists(p):
+            continue
+        log = open(p).read()
+        seed = re.search(r"options: seed=(-?\d+)", log)
+        sc = re.search(r"scores: 0=(-?\d+) 1=(-?\d+)", log)
+        if not seed or not sc:
+            continue
+        grid, units = mapgen.make_map(int(seed.group(1)))
+        lines.append("M " + " ".join(grid))
+        lines.append("S 0 42 " + " ".join(f"{u},10,{x},{y},{u if u < 2 else 2}" for u, (x, y) in sorted(units.items())))
+        for f in re.split(r"\nframe ", log)[1:]:
+            m = re.match(r"(\d+) agent (\d)", f)
+            a = re.search(r"stdout: (.*)", f)
+            if m and a:
+                lines.append(f"A {int(m.group(1)) - 1} {m.group(2)} {a.group(1).strip()}")
+        d = int(sc.group(1)) - int(sc.group(2))
+        lines.append(f"R {(d > 0) - (d < 0)}")
+        n += 1
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as t:
+        t.write("\n".join(lines) + "\n")
+    print(n, "games;", subprocess.run([os.path.join(ROOT, "build", "referee"), "--export", t.name, out], capture_output=True, text=True).stdout.strip())
+    os.unlink(t.name)
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if a[0] == "fetch":
+        fetch()
+    else:
+        export(a[1], "--top" in a, int(a[a.index("--sub") + 1]) if "--sub" in a else 0)

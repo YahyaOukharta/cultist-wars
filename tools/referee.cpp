@@ -283,9 +283,80 @@ static int checkFile(const char* path) {
     return 0;
 }
 
+// ---- export of recorded games as training records --------------------------------------------
+// FILE lines per game:  M rows | S 0 42 units | A turn player <output> ... | R result_for_player_0
+// Writes one Rec per position reached (search score 0, flag bit 1 = no search score).
+static int exportFile(const char* path, const char* out) {
+    FILE* f = fopen(path, "r");
+    FILE* o = fopen(out, "wb");
+    if (!f || !o) { perror(path); return 2; }
+    static char buf[1 << 16];
+    State s;
+    bool have = false;
+    vector<Rec> recs;
+    long long games = 0, total = 0, broken = 0;
+    auto record = [&]() {
+        Rec r;
+        memset(&r, 0, sizeof r);
+        for (int c = 0; c < NC; c++) if (wallAt[c]) r.walls[c >> 3] |= (uint8_t)(1 << (c & 7));
+        for (int u = 0; u < NU; u++) r.unit[u] = (uint16_t)((s.hp[u] > 0 ? s.pos[u] : 0) | s.hp[u] << 7 | s.own[u] << 11);
+        r.turn = (uint8_t)s.turn;
+        r.flags = 2;
+        recs.push_back(r);
+    };
+    while (fgets(buf, sizeof buf, f)) {
+        string l(buf);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+        if (l.size() < 2) continue;
+        if (l[0] == 'M') {
+            char grid[H][W + 2];
+            const char* p = l.c_str() + 2;
+            for (int y = 0; y < H; y++) { memcpy(grid[y], p + y * (W + 1), W); grid[y][W] = 0; }
+            initTables(grid);
+            have = false; recs.clear();
+        } else if (l[0] == 'S') {
+            int turn, pos = 0;
+            unsigned seed;
+            sscanf(l.c_str() + 2, "%d %u%n", &turn, &seed, &pos);
+            Obs ob;
+            memset(&ob, 0, sizeof ob);
+            const char* p = l.c_str() + 2 + pos;
+            int id, hp, x, y, ow, n;
+            while (sscanf(p, " %d,%d,%d,%d,%d%n", &id, &hp, &x, &y, &ow, &n) == 5) {
+                ob.hp[id] = (int8_t)hp; ob.pos[id] = (int8_t)(y * W + x); ob.own[id] = (int8_t)ow;
+                p += n;
+            }
+            s = fromObs(ob, seed, turn, nullptr);
+            have = true;
+        } else if (l[0] == 'A' && have) {
+            int turn, player, pos = 0;
+            sscanf(l.c_str() + 2, "%d %d %n", &turn, &player, &pos);
+            Move m;
+            string err;
+            if (turn != s.turn || over(s) || !resolveAction(s, player, l.substr(2 + pos), m, err)) { have = false; broken++; continue; }
+            record();
+            apply(s, m);
+        } else if (l[0] == 'R') {
+            int d = atoi(l.c_str() + 2);
+            for (Rec& r : recs) {
+                int sd = (r.turn & 1) ? -d : d;
+                r.result = (int8_t)(sd > 0) - (int8_t)(sd < 0);
+                r.margin = (int8_t)sd;
+            }
+            fwrite(recs.data(), sizeof(Rec), recs.size(), o);
+            total += (long long)recs.size(); games++;
+            recs.clear(); have = false;
+        }
+    }
+    fclose(f); fclose(o);
+    printf("%lld games, %lld positions -> %s (%lld games cut short by an unreadable action)\n", games, total, out, broken);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
     if (argc >= 3 && string(argv[1]) == "--check") return checkFile(argv[2]);
+    if (argc >= 4 && string(argv[1]) == "--export") return exportFile(argv[2], argv[3]);
     if (argc < 3) {
         fprintf(stderr, "usage: referee A B [-g games] [-j procs] [-t ms] [-f first_ms] [-n nodes] [-nb nodes_b] [-s seed] [-x grace_ms] [-v]\n");
         return 2;
