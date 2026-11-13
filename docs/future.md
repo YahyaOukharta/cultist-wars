@@ -6,7 +6,7 @@ for Cultist Wars until it passes a gate match.
 
 ## State after v2.3
 
-Rank 3. Measured flat: net width, relational inputs, search constants, more self-play
+Rank 2 (30.89; aCat 32.7 ahead). Measured flat: net width, relational inputs, search constants, more self-play
 generations at the same depth (+15 for the last one). Still open, in the order they will
 be tried:
 

@@ -5,7 +5,7 @@ an exact simulator of the referee (including its "random" neutral moves), an alp
 search and a small NNUE-style neural evaluation trained from self-play, in one C++ file
 under the 100k-character limit.
 
-**Result so far:** rank **3 / 401** on 2026-11-13 (`yhyoxx`, v2.3), from rank 181 the same
+**Result so far:** rank **2 / 401** on 2026-11-14 (`yhyoxx`, v2.3), from rank 181 the same
 morning.
 
 | Stage | Arena score | Rank |
@@ -15,7 +15,7 @@ morning.
 | First net, 32 hidden (v2.0) | 26.9 | 5 |
 | 64 hidden, generation 1 (v2.1) | 28.9 | 4 |
 | + deep-search data (v2.2) | 29.75 | 4 |
-| Generation 3 + search changes (v2.3) | 29.96 at 87% of its games | 3 |
+| Generation 3 + search changes (v2.3) | 30.89 | 2 |
  Built with the same method as the Breakthrough bot
 (`~/Desktop/breakthrough`): native referee → local league → engine → search → neural eval.
 
