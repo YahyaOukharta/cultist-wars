@@ -16,7 +16,7 @@ the arena).
 | v2.3 | generation-3 net (70M positions); reverse futility, shots in quiescence, leader-threat moves | +85 Elo at 20k nodes, +68 at 50 ms; 10–0–2 against the top 3 | 30.89 at the end of its run (drifted to 31.9 afterwards) | 2 |
 | v2.4 | generation-5 net trained on the 20k-node generations only (55M); +13% nodes/s on CodinGame (AVX2 output layer, static eval in the TT, hash move before generation, 524k-entry table) | +44 Elo at 20k nodes, +42 ± 28 at 50 ms (600 games); top 3 first seat 9–0–2 vs 7–3–2 for v2.3 side by side | 30.91 | 3 |
 | v2.5 | net with a new recipe (result weight 0.4, result softened by the final margin) on 65M deep positions; history penalties + singular extensions; leader-threat scoring off | +34 ± 20 at 20k nodes (1,200 games); parts: recipe +19 ± 17, search pair +15 [+7, +23] over 7,200 games; top 3 first seat 7–1–4 vs 8–3–1 for v2.4 side by side | **31.56** | **3** |
-| v2.6 | n7e80 net (v2.5 recipe, 80 epochs); transposition table in quiescence; packer strips indentation (94.7k chars) | +34 ± 14 at 20k nodes vs v2.5 (2,400 games); QTT +13.5 [+4, +23] over 4,800 games; aCat first seat on 9 fixed maps 2.5/9 then 6.5/9 on a re-run (v2.5 6/9): nine test games cannot separate versions; second-seat suite 5–5 vs 5–4–1 for v2.5 | (running) | |
+| v2.6 | n7e80 net (v2.5 recipe, 80 epochs); transposition table in quiescence; packer strips indentation (94.7k chars) | +34 ± 14 at 20k nodes vs v2.5 (2,400 games); QTT +13.5 [+4, +23] over 4,800 games; aCat first seat on 9 fixed maps 2.5/9 then 6.5/9 on a re-run (v2.5 6/9): nine test games cannot separate versions; second-seat suite 5–5 vs 5–4–1 for v2.5 | 29.54 (128 battles): first seat 36–8–5 against 71–3–4 for v2.5, five first-seat losses to aCat after leading by up to +1,400; reverted to v2.5 | 4 |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
@@ -55,6 +55,25 @@ the arena).
 | n1t / n2t (relational inputs: units under fire, convertible units) | 37M / 58M | 64 | n1a / n2a | −5 / −16, 27% slower |
 | n3a (**v2.3**) | 70M gen 0–3 | 64 | n1x | +32 |
 | n4a | 80M gen 0–4 | 64 | n3a | +15 |
+
+## v2.6: a self-play gain that lost in the arena
+
+v2.6 beat v2.5 by +34 ± 14 over 2,400 self-play games and finished its arena run 1.6–2
+points below it. Every part looked sound on its own: the n7e80 net (+17 self-play), the
+quiescence table (+13.5 at fixed nodes, −1% node speed in test games). In the arena it
+lost first-seat games it led: at turn 108 of one, five units (7, 3, 2 and 5 hp cultists)
+against aCat's three healthy ones, evaluated +665, lost all four cultists to focused fire.
+Self-play never produces that opponent, so no self-play number can see it.
+
+What the episode showed:
+- An arena run takes about 35 minutes to reach 100% (128 battles), and the battle logs
+  include our stderr: depth, nodes and speed of every arena turn. Arena node speed varies
+  with the time of day (v2.4 2.35M nodes/s, v2.5 3.14M, v2.6 2.83M, same per-node cost).
+- Nine test games against aCat on fixed maps gave v2.6 2.5/9 and then 6.5/9: test games
+  cannot separate versions; the arena run can.
+- Nets scored on held-out real battles (v2.6's 128): AUC 0.928–0.934 for every net since
+  generation 5 (n5d best, n7e80 among the worst); the arena-mixed net n10x overfits (0.965
+  on its own training games, 0.928 held out).
 
 ## What the arena battles say (676 games rebuilt from seed + moves)
 
