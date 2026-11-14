@@ -16,6 +16,7 @@ the arena).
 | v2.3 | generation-3 net (70M positions); reverse futility, shots in quiescence, leader-threat moves | +85 Elo at 20k nodes, +68 at 50 ms; 10–0–2 against the top 3 | 30.89 at the end of its run (drifted to 31.9 afterwards) | 2 |
 | v2.4 | generation-5 net trained on the 20k-node generations only (55M); +13% nodes/s on CodinGame (AVX2 output layer, static eval in the TT, hash move before generation, 524k-entry table) | +44 Elo at 20k nodes, +42 ± 28 at 50 ms (600 games); top 3 first seat 9–0–2 vs 7–3–2 for v2.3 side by side | 30.91 | 3 |
 | v2.5 | net with a new recipe (result weight 0.4, result softened by the final margin) on 65M deep positions; history penalties + singular extensions; leader-threat scoring off | +34 ± 20 at 20k nodes (1,200 games); parts: recipe +19 ± 17, search pair +15 [+7, +23] over 7,200 games; top 3 first seat 7–1–4 vs 8–3–1 for v2.4 side by side | **31.56** | **3** |
+| v2.6 | n7e80 net (v2.5 recipe, 80 epochs); transposition table in quiescence; packer strips indentation (94.7k chars) | +34 ± 14 at 20k nodes vs v2.5 (2,400 games); QTT +13.5 [+4, +23] over 4,800 games; aCat first seat on 9 fixed maps 2.5/9 then 6.5/9 on a re-run (v2.5 6/9): nine test games cannot separate versions; second-seat suite 5–5 vs 5–4–1 for v2.5 | (running) | |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
