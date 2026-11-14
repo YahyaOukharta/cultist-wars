@@ -1046,6 +1046,12 @@ struct Rec {
     int16_t score;         // search score for the side to move
     uint8_t pad[2];
 };
+#ifndef GEN_LATE_T     // data generation: from this turn on, search GEN_LATE_N nodes per move (a deeper teacher for endgames)
+#define GEN_LATE_T 999
+#endif
+#ifndef GEN_LATE_N
+#define GEN_LATE_N 0
+#endif
 static void runGen(const char* spec) {
     int games; long long nd; unsigned seed; char file[512];
     if (sscanf(spec, "%d:%lld:%u:%511s", &games, &nd, &seed, file) != 4) { fprintf(stderr, "CW_GEN=games:nodes:seed:file\n"); exit(2); }
@@ -1070,7 +1076,7 @@ static void runGen(const char* spec) {
                 int n = gen(s, mv, sc, 0);
                 m = mv[rng() % (n > 1 ? n - 1 : 1)];   // WAIT is last: never picked when there is anything else
             } else {
-                nodeLimit = nd;
+                nodeLimit = s.turn >= GEN_LATE_T ? GEN_LATE_N : nd;
                 m = think(s, 1e9);
                 Rec r;
                 memset(&r, 0, sizeof r);
