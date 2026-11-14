@@ -112,6 +112,8 @@ def main():
     ap.add_argument("--wd", type=float, default=0.0)
     ap.add_argument("--wclip", type=float, default=127 / 255, help="clip first-layer weights (int8 at QA=255); 0 = off")
     ap.add_argument("--init", help="float checkpoint (.pt) to continue from")
+    ap.add_argument("--extra", action="append", default=[], help="extra records (e.g. rebuilt arena games), training only, target = game result")
+    ap.add_argument("--extra-rep", type=int, default=1, help="times each extra record is repeated per epoch")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else
                     ("mps" if torch.backends.mps.is_available() else "cpu"))
     a = ap.parse_args()
@@ -130,6 +132,19 @@ def main():
         res = ((1 - a.margin_w) * res + a.margin_w * soft).astype(np.float32)
     sc = np.clip(data["score"].astype(np.float32), -4000, 4000)
     target = (a.lam * res + (1 - a.lam) / (1 + np.exp(-sc / a.k))).astype(np.float32)
+    epaths = sorted(set(p for f in a.extra for p in glob.glob(f, recursive=True)))
+    if epaths:              # appended after the shuffle: never in the validation slice
+        ex = np.concatenate([np.fromfile(p, dtype=REC) for p in epaths])
+        eres = (ex["result"].astype(np.float32) + 1) / 2
+        if a.margin_w > 0:
+            esoft = 1 / (1 + np.exp(-a.margin_c * ex["margin"].astype(np.float32)))
+            eres = ((1 - a.margin_w) * eres + a.margin_w * esoft).astype(np.float32)
+        ex, eres = np.tile(ex, a.extra_rep), np.tile(eres, a.extra_rep)
+        print(f"extra: {len(ex) // a.extra_rep} positions x{a.extra_rep} from {len(epaths)} files", flush=True)
+        data = np.concatenate([data, ex])
+        hard = np.concatenate([hard, (ex["result"].astype(np.float32) + 1) / 2])
+        target = np.concatenate([target, eres.astype(np.float32)])
+        n = len(data)
 
     dev = torch.device(a.device)
     U = torch.from_numpy(data["unit"].astype(np.int16)).to(dev)            # (n, 14)
