@@ -15,7 +15,7 @@ Output file: int16 W[1911][H], int16 B[H], int16 O[buckets][2][H], int32 OB[buck
 
   train.py -o tools/nets/n0.bin 'data/g0_*.bin' [--hidden 32] [--epochs 20] [--lam 0.6]
 """
-import argparse, glob, time
+import argparse, glob, os, re, time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -114,13 +114,18 @@ def main():
     ap.add_argument("--init", help="float checkpoint (.pt) to continue from")
     ap.add_argument("--extra", action="append", default=[], help="extra records (e.g. rebuilt arena games), training only, target = game result")
     ap.add_argument("--extra-rep", type=int, default=1, help="times each extra record is repeated per epoch")
+    ap.add_argument("--rep", action="append", default=[], help="REGEX:N - files whose name matches REGEX are loaded N times (weight recent generations)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else
                     ("mps" if torch.backends.mps.is_available() else "cpu"))
     a = ap.parse_args()
     t0 = time.time()
 
     paths = sorted(set(p for f in a.files for p in glob.glob(f, recursive=True)))
-    data = np.concatenate([np.fromfile(p, dtype=REC) for p in paths])
+    reps = [(re.compile(r.rsplit(":", 1)[0]), int(r.rsplit(":", 1)[1])) for r in a.rep]
+    times = [max([n for rx, n in reps if rx.search(os.path.basename(p))] or [1]) for p in paths]
+    data = np.concatenate([np.fromfile(p, dtype=REC) for p, t in zip(paths, times) for _ in range(t)])
+    if reps:
+        print(f"repeated: {sum(t > 1 for t in times)} files", flush=True)
     np.random.default_rng(1).shuffle(data)
     n = len(data)
     nval = min(200000, n // 20)
