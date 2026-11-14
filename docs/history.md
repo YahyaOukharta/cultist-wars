@@ -83,6 +83,18 @@ near 4 points of percentage (about 30 Elo). v2.5's own two runs gave 71.2% and 7
 candidate must beat v2.5 by more than that to be told apart in one run; smaller changes
 need two runs or a paired test-game suite.
 
+A local pool of frozen older versions does not replace it. At 20k nodes, 800 games each:
+
+| | vs v2.2 (n1x) | vs v2.3 | vs v2.4 | arena |
+|---|---|---|---|---|
+| v2.5 | +105 | +41 | +21 | 31.56 / 31.97 |
+| v2.6 | +146 | +79 | +46 | 29.54 |
+| v2.7c (n11d) | +97 | +41 | +7 | 29.55 |
+
+The pool ranks v2.6 first; the arena ranks it last. Older versions of the same bot share
+its blind spots. Both arena failures changed the net (v2.6, v2.7c, about −2.2 points);
+the one that kept v2.5's net (v2.7a) lost 0.9, inside the noise.
+
 ## What the arena battles say (676 games rebuilt from seed + moves)
 
 Score against the eight players above us, by seat:

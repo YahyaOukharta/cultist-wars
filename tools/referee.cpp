@@ -286,6 +286,8 @@ static int checkFile(const char* path) {
 // ---- export of recorded games as training records --------------------------------------------
 // FILE lines per game:  M rows | S 0 42 units | A turn player <output> ... | R result_for_player_0
 // Writes one Rec per position reached (search score 0, flag bit 1 = no search score).
+// With CW_LABEL=nodes every position is searched instead and gets the search score, as in
+// self-play data (flag bit 0 = the best move shoots or converts).
 static int exportFile(const char* path, const char* out) {
     FILE* f = fopen(path, "r");
     FILE* o = fopen(out, "wb");
@@ -295,6 +297,8 @@ static int exportFile(const char* path, const char* out) {
     bool have = false;
     vector<Rec> recs;
     long long games = 0, total = 0, broken = 0;
+    long long label = getenv("CW_LABEL") ? atoll(getenv("CW_LABEL")) : 0;
+    if (label) { initNet(); initSearch(); nodeLimit = label; }
     auto record = [&]() {
         Rec r;
         memset(&r, 0, sizeof r);
@@ -302,6 +306,11 @@ static int exportFile(const char* path, const char* out) {
         for (int u = 0; u < NU; u++) r.unit[u] = (uint16_t)((s.hp[u] > 0 ? s.pos[u] : 0) | s.hp[u] << 7 | s.own[u] << 11);
         r.turn = (uint8_t)s.turn;
         r.flags = 2;
+        if (label) {
+            Move b = think(s, 1e9);
+            r.flags = mType(b) >= SHOOT;
+            r.score = (int16_t)max(-32000, min(32000, info.score));
+        }
         recs.push_back(r);
     };
     while (fgets(buf, sizeof buf, f)) {
@@ -313,6 +322,7 @@ static int exportFile(const char* path, const char* out) {
             const char* p = l.c_str() + 2;
             for (int y = 0; y < H; y++) { memcpy(grid[y], p + y * (W + 1), W); grid[y][W] = 0; }
             initTables(grid);
+            if (label) { memset(tt, 0, sizeof(TTE) << TT_BITS); memset(hist, 0, sizeof hist); }
             have = false; recs.clear();
         } else if (l[0] == 'S') {
             int turn, pos = 0;

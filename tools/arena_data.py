@@ -46,7 +46,7 @@ def fetch():
             print(i, flush=True)
 
 
-def export(out, top, sub, only=None, seats=False, opp_side=False, who=None):
+def export(out, top, sub, only=None, seats=False, opp_side=False, who=None, label=0, jobs=1):
     lines, n = [], 0
     for b in battles():
         if (top and b["opponent"] not in TOP) or (sub and b["submission"] != sub) or (only and b["result"] != only) or (who and b["opponent"] != who):
@@ -79,6 +79,31 @@ def export(out, top, sub, only=None, seats=False, opp_side=False, who=None):
         os.replace(t.name, out)
         print(n, "games ->", out)
         return
+    if label:          # search every position (CW_LABEL nodes), one process per chunk of games
+        games, cur = [], []
+        for l in lines:
+            if l.startswith("M ") and cur:
+                games.append(cur); cur = []
+            cur.append(l)
+        if cur:
+            games.append(cur)
+        procs, parts = [], []
+        for i in range(jobs):
+            part = f"{out}.in{i}"
+            with open(part, "w") as g:
+                g.write("\n".join(x for gm in games[i::jobs] for x in gm) + "\n")
+            parts.append(part)
+            procs.append(subprocess.Popen([os.path.join(ROOT, "build", "referee_lab"), "--export", part, f"{out}.{i}"],
+                                          env={**os.environ, "CW_LABEL": str(label)}, stdout=subprocess.PIPE, text=True))
+        for p in procs:
+            p.wait()
+        with open(out, "wb") as g:
+            for i in range(jobs):
+                g.write(open(f"{out}.{i}", "rb").read())
+                os.unlink(f"{out}.{i}"); os.unlink(parts[i])
+        print(n, "games;", os.path.getsize(out) // 48, "positions labelled at", label, "nodes ->", out)
+        os.unlink(t.name)
+        return
     print(n, "games;", subprocess.run([os.path.join(ROOT, "build", "referee"), "--export", t.name, out], capture_output=True, text=True).stdout.strip())
     os.unlink(t.name)
 
@@ -90,4 +115,5 @@ if __name__ == "__main__":
     else:
         export(a[1], "--top" in a, int(a[a.index("--sub") + 1]) if "--sub" in a else 0,
                a[a.index("--only") + 1] if "--only" in a else None, a[0] == "games", "--opp-side" in a,
-               a[a.index("--who") + 1] if "--who" in a else None)
+               a[a.index("--who") + 1] if "--who" in a else None,
+               int(a[a.index("--label") + 1]) if "--label" in a else 0, int(a[a.index("-j") + 1]) if "-j" in a else 1)
