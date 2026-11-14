@@ -20,7 +20,7 @@ the arena).
 | v2.5 again | resubmitted unchanged (baseline), twice | | **31.97**, then 30.65 | 3 |
 | v2.7a | v2.5 + new iterations allowed until 85% of the turn (`TM_PCT` 85, mean 39 ms per turn instead of 33) | +16, +12, +6 at 50 ms (3,600 games, pooled +11 ± 12) | 30.87, then 31.69 (rank 2); on v2.5's pooled mix 71.2% over both runs against 72.3% for v2.5's three: equal | 2–3 |
 | v2.7c | v2.5 with the n11d net (generations 3–12, 65.6M positions, result weight 0.6, 40 epochs): best on held-out real battles (AUC 0.9421, log-loss 0.360 against 0.383 for n7a, 34k positions from 247 battles) | −7 ± 14 at 20k nodes (2,400 games) | 29.55; on v2.5's mix 67.4% (v2.5 71.2 / 75.5): top 3 first seat 10/16, second 5/22. Reverted to v2.5 | 3 |
-| v2.8a | v2.5 search with the n12a net: n7a's data and recipe + 224k positions from our 1,622 arena games, each searched again at 300k nodes for its label, repeated 10× | +4 ± 17 at 20k nodes (1,600 games) | **31.82**, rank 2; on v2.5's pooled mix 75.4% (v2.5 72.3% over three runs): top 3 first seat 18/22, second 6/16 | **2** |
+| v2.8a | v2.5 search with the n12a net: n7a's data and recipe + 224k positions from our 1,622 arena games, each searched again at 300k nodes for its label, repeated 10× | +4 ± 17 at 20k nodes (1,600 games) | **31.82** at 100%, drifting to **32.51** (aCat 32.52) over the next 1.5 hours; on v2.5's pooled mix 75.4% (v2.5 72.3% over three runs): top 3 first seat 18/22, second 6/16 | **2** |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
