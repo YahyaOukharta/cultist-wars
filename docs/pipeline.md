@@ -356,9 +356,23 @@ What has transferred to the arena so far, and what has not:
 | Next generation, wider net (v2.1) | +144 | +2.0 |
 | Deeper-teacher data (v2.2) | +46 | +0.85 |
 | New generation + search changes on the net (v2.3) | +85 | +1.14 |
+| Generation-5 net + 13% speed (v2.4) | +44 | +0.02 |
+| Net recipe + history penalties + singular extensions (v2.5) | +34 | +0.65 |
+| Same net trained 80 epochs + quiescence table (v2.6) | +34 | **−1.6 to −2.0** (reverted) |
 
 Rule of thumb from these: with the net, about 70 self-play Elo is one arena point, and
 changes to the evaluation's training transfer more reliably than changes to pruning.
+v2.6 broke the rule: a longer-trained net on the same data played better against itself
+and worse against aCat (first seat 0–5–1 against 4–0–1 for v2.5).
+
+**The arena is the final gate (from v2.6 on).** A run reaches 100% in about 35 minutes
+and its battle logs carry our stderr, so every arena turn's depth, nodes and speed can be
+read back (`arena_data.py fetch`). Procedure: submit the candidate; at 100% compare the
+score, the per-seat record (first seat should stay above ~90% against the field) and the
+node speed with the live version's; if the score is more than 0.5 below, resubmit the
+locked version at once. Keep the resubmitted baseline's run as a second measure of noise.
+Nets are additionally scored on held-out real battles (AUC and log-loss of the static
+evaluation on the newest submission's games, which no net has trained on).
 
 ## 5. Locking a version
 
