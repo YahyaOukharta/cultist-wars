@@ -385,8 +385,10 @@ static int gen(const State& s, Move* mv, int* sc, int mode) {
         if (s.hp[u] <= 0 || s.own[u] != me) continue;
         int p = s.pos[u];
         if (mode != 2) {
-            int best0 = 99;   // leader: walking distance to the nearest unit it could convert
-            if (THREAT && u < 2 && mode == 0)
+            // THREAT 1: leader steps are scored by walking distance to the nearest convertible unit
+            // (next to one = a threat, never pruned). THREAT 2: only "next to one", from the neighbours.
+            int best0 = 99;
+            if (THREAT == 1 && u < 2 && mode == 0)
                 for (int t = 2; t < NU; t++)
                     if (s.hp[t] > 0 && s.own[t] != me) best0 = min(best0, (int)bfsD[p][s.pos[t]]);
             for (int d = 0; d < 4; d++) {
@@ -399,6 +401,11 @@ static int gen(const State& s, Move* mv, int* sc, int mode) {
                         if (s.hp[t] > 0 && s.own[t] != me) b1 = min(b1, (int)bfsD[c][s.pos[t]]);
                     if (b1 == 1) v = 430000;            // next to a convertible unit: a threat
                     else if (b1 < best0) v = 50000;     // approaching one
+                } else if (THREAT == 2 && u < 2 && mode == 0) {
+                    for (int e = 0; e < 4; e++) {
+                        int c2 = nbr[c][e], t = c2 >= 0 ? s.at[c2] : -1;
+                        if (t >= 2 && s.own[t] != me) { v = 430000; break; }
+                    }
                 }
                 mv[n] = mk(MOVE, u, c); sc[n++] = v;
             }

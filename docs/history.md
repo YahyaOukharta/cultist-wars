@@ -13,7 +13,8 @@ the arena).
 | v2.0 | first net: 1911 inputs → 32 hidden, 8.4M positions played by v1.1 | +206 Elo at 50 ms; gauntlet 56% | 26.62 → 26.91 | 6 → 5 |
 | v2.1 | 64 hidden, generation 1: 25.6M positions by v1.1 + 11.7M by the first net | +144 Elo at 20k nodes; gauntlet 79% | 28.36 → 28.9 | 4 |
 | v2.2 | + 10M positions searched at 20k nodes per move (47M in total) | +46 Elo at 20k nodes; gauntlet 85% (40 games) | 29.75 | 4 |
-| v2.3 | generation-3 net (70M positions); reverse futility, shots in quiescence, leader-threat moves | +85 Elo at 20k nodes, +68 at 50 ms; 10–0–2 against the top 3 | **30.89** | **2** |
+| v2.3 | generation-3 net (70M positions); reverse futility, shots in quiescence, leader-threat moves | +85 Elo at 20k nodes, +68 at 50 ms; 10–0–2 against the top 3 | 30.89 → 31.9 | 2 |
+| v2.4 | generation-5 net trained on the 20k-node generations only (55M); +13% nodes/s on CodinGame (AVX2 output layer, static eval in the TT, hash move before generation, 524k-entry table) | +44 Elo at 20k nodes, +42 ± 28 at 50 ms (600 games); top 3 first seat 9–0–2 vs 7–3–2 for v2.3 side by side; second seat 58% vs 52% | running | |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
