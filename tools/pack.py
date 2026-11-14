@@ -18,6 +18,7 @@ ap.add_argument("-n", "--net")
 ap.add_argument("-H", "--hidden", type=int, default=32)
 ap.add_argument("-D", action="append", default=[])
 ap.add_argument("-o", "--out", default="out/submission.cpp")
+ap.add_argument("--keep-comments", action="store_true", help="do not strip comments and blank lines")
 ap.add_argument("--keep-local", action="store_true", help="keep LOCAL blocks (to test the embedded net with CW_NODES)")
 a = ap.parse_args()
 
@@ -33,6 +34,9 @@ for line in s.split("\n"):
         skip = 1
         continue
     out.append(line)
+if not a.keep_comments:      # comments and blank lines cost characters; no string in the source contains "//"
+    out = [re.sub(r"\s*//(?!@NET_DATA@).*$", "", l) for l in out]
+    out = [l for l in out if l.strip()]
 s = "\n".join(out)
 defs = "".join(f"#define {d.replace('=', ' ', 1)}\n" for d in a.D)
 assert "//@NET_DATA@" in s
@@ -55,10 +59,10 @@ if a.net:
     text = "".join(map(chr, codes.tolist()))
     net = f'#define NN_EMBED 1\n#define NN_OFF {OFF}\nstatic const char16_t NN_DATA[] = u"{text}";\n'
     defs = f"#define NN_H {h}\n" + defs
-s = s.replace("//@NET_DATA@\n", net)
+assert s.count("//@NET_DATA@") == 1
+s = s.replace("//@NET_DATA@", net)
 if defs:
-    i = s.index("#include")
-    s = s[:i] + defs + s[i:]
+    s = defs + s          # at the very top: the first #include may sit inside a platform-specific block
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
 open(a.out, "w", encoding="utf-8").write(s)
 print(f"{a.out}: {len(s)} chars" + ("  ** over the 100k limit **" if len(s) > 100000 else ""))

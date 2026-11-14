@@ -4,6 +4,7 @@
 #if defined(__x86_64__)
 #pragma GCC optimize("O3,inline,omit-frame-pointer,unroll-loops")
 #pragma GCC target("avx2,bmi,bmi2,popcnt,lzcnt")
+#include <immintrin.h>
 #endif
 #include <algorithm>
 #include <chrono>
@@ -259,8 +260,18 @@ static inline void accAdd(State& s, int u, int own, int hp, int pos, int sign) {
         else for (int i = 0; i < NN_H; i++) a[i] -= w[i];
     }
 }
+// A unit changes cell (or hp / owner): one pass, acc += new row - old row.
+static inline void accSwap(State& s, int u, int own0, int hp0, int pos0, int own1, int hp1, int pos1) {
+    for (int p = 0; p < 2; p++) {
+        const int16_t *w0 = nnW[feat(p, u, own0, hp0, pos0)], *w1 = nnW[feat(p, u, own1, hp1, pos1)];
+        if (w0 == w1) continue;
+        int16_t* a = s.acc[p];
+        for (int i = 0; i < NN_H; i++) a[i] += w1[i] - w0[i];
+    }
+}
 #else
 static inline void accAdd(State&, int, int, int, int, int) {}
+static inline void accSwap(State&, int, int, int, int, int, int, int) {}
 #endif
 
 static inline U64 key(const State& s) {
@@ -286,8 +297,7 @@ static void rehash(State& s) {
 }
 static inline void moveUnit(State& s, int u, int to) {
     int from = s.pos[u];
-    accAdd(s, u, s.own[u], s.hp[u], from, -1);
-    accAdd(s, u, s.own[u], s.hp[u], to, 1);
+    accSwap(s, u, s.own[u], s.hp[u], from, s.own[u], s.hp[u], to);
     s.hash ^= zPos[u][from] ^ zPos[u][to];
     s.occ ^= bit(from) | bit(to);
     s.at[from] = -1; s.at[to] = (int8_t)u; s.pos[u] = (int8_t)to;
@@ -317,8 +327,8 @@ static void apply(State& s, Move m) {
         if (h >= 0) {
             int nh = max(0, s.hp[h] - (7 - mdist[s.pos[u]][s.pos[h]]));
             s.hash ^= zHp[h][s.hp[h]] ^ zHp[h][nh];
-            accAdd(s, h, s.own[h], s.hp[h], s.pos[h], -1);
-            if (nh) accAdd(s, h, s.own[h], nh, s.pos[h], 1);
+            if (nh) accSwap(s, h, s.own[h], s.hp[h], s.pos[h], s.own[h], nh, s.pos[h]);   // same hp bucket: nothing to do
+            else accAdd(s, h, s.own[h], s.hp[h], s.pos[h], -1);
             s.hp[h] = (int8_t)nh;
             if (!nh) {
                 deadCell = s.pos[h];   // the body blocks its tile until the end of the turn
@@ -333,8 +343,7 @@ static void apply(State& s, Move m) {
         int me = s.own[u];
         if (s.own[a] != 2) s.cnt[s.own[a]]--;
         s.hash ^= zOwn[a][s.own[a]] ^ zOwn[a][me];
-        accAdd(s, a, s.own[a], s.hp[a], s.pos[a], -1);
-        accAdd(s, a, me, s.hp[a], s.pos[a], 1);
+        accSwap(s, a, s.own[a], s.hp[a], s.pos[a], me, s.hp[a], s.pos[a]);
         s.own[a] = (int8_t)me; s.cnt[me]++;
         break;
     }
@@ -462,11 +471,28 @@ static inline int nnEval(const State& s) {
     int stm = s.turn & 1, left = MAXTURN - s.turn, b = (left <= 70) + (left <= 30) + (left <= 10);
     const int16_t *a0 = s.acc[stm], *a1 = s.acc[stm ^ 1], *o0 = nnO[b][0], *o1 = nnO[b][1];
     int sum = 0;
+#if defined(__AVX2__) && NN_H % 16 == 0 && !defined(NO_SIMD)
+    // v = clamp(acc, 0, 255); sum += (v * o) * v, 16 lanes at a time: v * o fits int16 (255 * 127).
+    const __m256i zero = _mm256_setzero_si256(), qa = _mm256_set1_epi16(QA);
+    __m256i acc = zero;
+    for (int i = 0; i < NN_H; i += 16) {
+        __m256i v = _mm256_min_epi16(_mm256_max_epi16(_mm256_loadu_si256((const __m256i*)(a0 + i)), zero), qa);
+        acc = _mm256_add_epi32(acc, _mm256_madd_epi16(_mm256_mullo_epi16(v, _mm256_loadu_si256((const __m256i*)(o0 + i))), v));
+        __m256i w = _mm256_min_epi16(_mm256_max_epi16(_mm256_loadu_si256((const __m256i*)(a1 + i)), zero), qa);
+        acc = _mm256_add_epi32(acc, _mm256_madd_epi16(_mm256_mullo_epi16(w, _mm256_loadu_si256((const __m256i*)(o1 + i))), w));
+    }
+    __m128i h = _mm_add_epi32(_mm256_castsi256_si128(acc), _mm256_extracti128_si256(acc, 1));
+    h = _mm_add_epi32(h, _mm_shuffle_epi32(h, 0x4E));
+    h = _mm_add_epi32(h, _mm_shuffle_epi32(h, 0xB1));
+    sum = _mm_cvtsi128_si32(h);
+#else
     for (int i = 0; i < NN_H; i++) {
         int v = min(max((int)a0[i], 0), (int)QA), w = min(max((int)a1[i], 0), (int)QA);
         sum += v * o0[i] * v + w * o1[i] * w;
     }
-    return (int)((long long)(sum / QA + nnOB[b]) * NN_SCALE / (QA * QB));
+#endif
+    int z = (int)((long long)(sum / QA + nnOB[b]) * NN_SCALE / (QA * QB));
+    return z > 20000 ? 20000 : z < -20000 ? -20000 : z;
 }
 static inline int evalStm(const State& s) {
     if (!nnLoaded) return (s.turn & 1) ? -evalP0(s) : evalP0(s);
@@ -482,7 +508,11 @@ static inline int terminal(const State& s, int ply) {
 }
 
 // ---- search ------------------------------------------------------------------------------
-struct TTE { uint32_t key; Move move; int16_t score; int8_t depth; uint8_t flag; };
+struct TTE { uint32_t key; Move move; int16_t score; int16_t ev; int8_t depth; uint8_t flag; };   // 12 bytes; ev = static eval
+#ifndef TT_EV        // keep the static evaluation in the table: later iterations revisit the node without evaluating it again
+#define TT_EV 1
+#endif
+static const int16_t EV_NONE = -32768;
 enum { TT_EXACT = 1, TT_LOWER = 2, TT_UPPER = 3 };
 static TTE* tt;
 static const U64 TT_MASK = (1ULL << TT_BITS) - 1;
@@ -522,6 +552,23 @@ static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     return stand;
 }
 
+#ifndef STAGED       // try the hash move before generating moves
+#define STAGED 1
+#endif
+// A move taken from the transposition table may belong to another position (key collision).
+static bool legalMove(const State& s, Move m) {
+    int me = s.turn & 1, u = mUnit(m), a = mArg(m);
+    switch (mType(m)) {
+    case MOVE:
+        return u < NU && a < NC && s.hp[u] > 0 && s.own[u] == me && !wallAt[a] && s.at[a] < 0 && mdist[s.pos[u]][a] == 1;
+    case SHOOT:
+        return u >= 2 && u < NU && a < NU && a != u && s.hp[u] > 0 && s.own[u] == me && s.hp[a] > 0 && mdist[s.pos[u]][s.pos[a]] <= RANGE;
+    case CONVERT:
+        return u == me && a >= 2 && a < NU && s.hp[u] > 0 && s.hp[a] > 0 && s.own[a] != me && mdist[s.pos[u]][s.pos[a]] == 1;
+    default:
+        return m == mk(WAIT, 0, 0);
+    }
+}
 static int search(const State& s, int depth, int alpha, int beta, int ply, bool allowNull = true) {
     if (over(s)) return terminal(s, ply);
     if (depth <= 0) return qsearch(s, alpha, beta, ply, 0);
@@ -531,15 +578,17 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     U64 k = key(s);
     TTE* e = &tt[k & TT_MASK];
     Move ttm = NOMOVE;
+    int ev = EV_NONE;
     if (e->key == (uint32_t)(k >> 32)) {
         ttm = e->move;
+        if (TT_EV && e->flag) ev = e->ev;
         if (e->depth >= depth && !pv) {
             int v = e->score;
             if (v > MATE - 400) v -= ply; else if (v < -MATE + 400) v += ply;
             if (e->flag == TT_EXACT || (e->flag == TT_LOWER && v >= beta) || (e->flag == TT_UPPER && v <= alpha)) return v;
         }
     }
-    int ev = evalStm(s);
+    if (ev == EV_NONE) ev = evalStm(s);
     if (!pv && abs(beta) < MATE - 400) {
         if (RFP && depth <= RFP_MAXD && ev - RFP * depth >= beta) return ev;
         if (NMP && allowNull && depth >= 3 && ev >= beta) {
@@ -551,27 +600,42 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
         }
     }
     if (IIR && depth >= IIR && ttm == NOMOVE) depth--;
+    // The hash move is searched before any move is generated: most cutoffs come from it.
+    bool ttOk = STAGED && ttm != NOMOVE && legalMove(s, ttm);
     Move mv[256]; int sc[256];
-    int n = gen(s, mv, sc, 0), me = s.turn & 1;
-    for (int i = 0; i < n; i++) {
-        Move m = mv[i];
-        if (m == ttm) sc[i] = 2000000;
-        else if (sc[i] > -100000 && sc[i] < 100000) {   // quiet steps and shots at neutrals
-            if (m == killer[ply][0]) sc[i] = 400000;
-            else if (m == killer[ply][1]) sc[i] = 399000;
-            else sc[i] += hist[me][m & 8191];
-        }
-    }
+    int n = 0, gi = 0, me = s.turn & 1;
+    bool generated = false;
     int best = -INF, a0 = alpha;
     Move bm = NOMOVE;
-    for (int i = 0; i < n; i++) {
-        pick(mv, sc, i, n);
-        Move m = mv[i];
-        bool quiet = sc[i] < 450000, threat = quiet && sc[i] >= 420000;
+    for (int i = 0;; i++) {
+        Move m;
+        int msc;
+        if (i == 0 && ttOk) { m = ttm; msc = 2000000; }
+        else {
+            if (!generated) {
+                generated = true;
+                n = gen(s, mv, sc, 0);
+                for (int j = 0; j < n; j++) {
+                    Move g = mv[j];
+                    if (g == ttm) {
+                        sc[j] = ttOk ? -2000000000 : 2000000;   // already searched: sorts last and ends the loop
+                    } else if (sc[j] > -100000 && sc[j] < 100000) {   // quiet steps and shots at neutrals
+                        if (g == killer[ply][0]) sc[j] = 400000;
+                        else if (g == killer[ply][1]) sc[j] = 399000;
+                        else sc[j] += hist[me][g & 8191];
+                    }
+                }
+            }
+            if (gi >= n) break;
+            pick(mv, sc, gi, n);
+            m = mv[gi]; msc = sc[gi]; gi++;
+            if (msc == -2000000000) break;
+        }
+        bool quiet = msc < 450000, threat = quiet && msc >= 420000;
         if (i > 0 && quiet && !threat && !pv && best > -MATE + 400) {
             if (LMP && depth <= LMP_D && i >= LMP + (LMP_LIN ? LMP_LIN * depth : depth * depth)) continue;
             if (FUT && depth <= FUT_D && ev + FUT * depth <= alpha) continue;
-            if (HPRUNE && depth <= 4 && sc[i] < -HPRUNE * depth) continue;
+            if (HPRUNE && depth <= 4 && msc < -HPRUNE * depth) continue;
         }
         State c = s;
         apply(c, m);
@@ -606,7 +670,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     }
     int st = best;
     if (st > MATE - 400) st += ply; else if (st < -MATE + 400) st -= ply;
-    e->key = (uint32_t)(k >> 32); e->move = bm; e->score = (int16_t)st; e->depth = (int8_t)depth;
+    e->key = (uint32_t)(k >> 32); e->move = bm; e->score = (int16_t)st; e->ev = (int16_t)ev; e->depth = (int8_t)depth;
     e->flag = best >= beta ? TT_LOWER : best > a0 ? TT_EXACT : TT_UPPER;
     return best;
 }
