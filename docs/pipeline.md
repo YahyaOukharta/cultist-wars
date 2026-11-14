@@ -359,6 +359,11 @@ What has transferred to the arena so far, and what has not:
 | Generation-5 net + 13% speed (v2.4) | +44 | +0.02 |
 | Net recipe + history penalties + singular extensions (v2.5) | +34 | +0.65 |
 | Same net trained 80 epochs + quiescence table (v2.6) | +34 | **−1.6 to −2.0** (reverted) |
+| v2.5 + 85% turn-time rule (v2.7a) | +11 at 50 ms | 0 (two runs: 30.87, 31.69) |
+| Best net on held-out battles, n11d (v2.7c) | −7 | −0.8 to −2.0 (one run, reverted) |
+| n7a's data + search-labelled arena positions, n12a (v2.8a) | +4 | +0.3 to +1.2 (one run, 31.82) |
+
+Arena deltas are against v2.5's three runs (31.56, 31.97, 30.65).
 
 Rule of thumb from these: with the net, about 70 self-play Elo is one arena point, and
 changes to the evaluation's training transfer more reliably than changes to pruning.

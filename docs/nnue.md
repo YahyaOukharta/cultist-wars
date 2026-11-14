@@ -112,3 +112,24 @@ Since generation 5 the nets are indistinguishable on this measure too.
 
 Lessons: a stronger or deeper teacher beats more of the same data; width needs data;
 validation loss does not predict playing strength at this level.
+
+### After v2.5: the arena as judge
+
+| Net | Data and recipe | Self-play vs n7a (20k nodes) | Held-out battles AUC / log-loss | Arena |
+|---|---|---|---|---|
+| n7e80 (v2.6) | n7a's data and recipe, 80 epochs | +17 | 0.9380 / 0.385 | 29.54 (with QTT) |
+| n9e80 | + generations 9–11 (74M) | −11 vs n7e80 | | |
+| n10a | generations 3–12 (65.6M) | | 0.9399 / 0.383 | |
+| n10x | n10a + 101k arena positions ×20, game result as target | | 0.9279 (0.965 on its own games: overfit) | |
+| n11d | generations 3–12, result weight 0.6, no margin | −7 ± 14 | **0.9421 / 0.360** | 29.55 (v2.7c) |
+| n11s | generations 3–12, n7a recipe | | 0.9394 / 0.384 | |
+| **n12a (v2.8a)** | n7a's data and recipe + 224k positions of our 1,622 arena games, searched again at 300k nodes (`arena_data.py export --label 300000`), repeated ×10 | +4 ± 17 | (trained on them) | **31.82** |
+
+AUC columns: 34k positions from 247 battles of v2.6 and v2.5's rerun, not in any training
+set at the time. The best-predicting net (n11d) did no better in the arena, so this
+measure does not decide either.
+
+n12a's recipe (Kaggle GPU, `kaggle_train.py push n12a`): generations g1x, g2, g2b, g2c,
+g3–g8 plus account-2 datasets p2c–p2i (n7a's data), and dataset p2m = `arena_lab.bin`;
+`--hidden 64 --epochs 40 --lam 0.4 --k 800 --margin-w 1.0 --margin-c 0.7 --rep arena_lab:10`.
+The arena positions are 0.3% of the data before repetition, 3.4% after.
