@@ -1052,6 +1052,37 @@ struct Rec {
 #ifndef GEN_LATE_N
 #define GEN_LATE_N 0
 #endif
+// CW_STARTS=file + CW_PART / CW_NPARTS: instead of random maps, play out the start positions of
+// the file (M/S pairs written by referee --export with CW_STARTS), every NPARTS-th from PART.
+struct Start { char grid[H][W + 2]; Obs ob; uint32_t seed; int turn; };
+static vector<Start> loadStarts(const char* path, int part, int nparts) {
+    vector<Start> v;
+    FILE* f = fopen(path, "r");
+    if (!f) { perror(path); exit(2); }
+    static char buf[1 << 16];
+    Start cur;
+    int idx = 0;
+    while (fgets(buf, sizeof buf, f)) {
+        if (buf[0] == 'M') {
+            for (int y = 0; y < H; y++) { memcpy(cur.grid[y], buf + 2 + y * (W + 1), W); cur.grid[y][W] = 0; }
+        } else if (buf[0] == 'S') {
+            int pos = 0, id, hp, x, y, ow, n;
+            unsigned sd;
+            sscanf(buf + 2, "%d %u%n", &cur.turn, &sd, &pos);
+            cur.seed = sd;
+            memset(&cur.ob, 0, sizeof cur.ob);
+            const char* p = buf + 2 + pos;
+            while (sscanf(p, " %d,%d,%d,%d,%d%n", &id, &hp, &x, &y, &ow, &n) == 5) {
+                cur.ob.hp[id] = (int8_t)hp; cur.ob.pos[id] = (int8_t)(y * W + x); cur.ob.own[id] = (int8_t)ow;
+                p += n;
+            }
+            if (idx++ % nparts == part) v.push_back(cur);
+        }
+    }
+    fclose(f);
+    return v;
+}
+
 static void runGen(const char* spec) {
     int games; long long nd; unsigned seed; char file[512];
     if (sscanf(spec, "%d:%lld:%u:%511s", &games, &nd, &seed, file) != 4) { fprintf(stderr, "CW_GEN=games:nodes:seed:file\n"); exit(2); }
@@ -1060,14 +1091,30 @@ static void runGen(const char* spec) {
     mt19937 rng(seed);
     initNet();
     initSearch();
+    vector<Start> starts;
+    if (getenv("CW_STARTS")) {
+        starts = loadStarts(getenv("CW_STARTS"), atoi(getenv("CW_PART")), atoi(getenv("CW_NPARTS")));
+        games = (int)starts.size();
+    }
     long long total = 0;
     for (int g = 0; g < games; g++) {
-        Map mp = makeMap(rng);
-        initTables(mp.grid);
+        State s;
+        int nOpen;
+        if (starts.empty()) {
+            Map mp = makeMap(rng);
+            initTables(mp.grid);
+            s = fromObs(mp.start, 42, 0, nullptr);
+            nOpen = (int)(rng() % 9);
+        } else {
+            const Start& st = starts[g];
+            initTables(st.grid);
+            s = fromObs(st.ob, st.seed, st.turn, nullptr);
+            for (int u = 0; u < NU; u++) s.own[u] = st.ob.own[u];   // dead units keep their owner (neutral list)
+            rehash(s);
+            nOpen = 0;
+        }
         memset(tt, 0, sizeof(TTE) << TT_BITS);
         memset(hist, 0, sizeof hist);
-        State s = fromObs(mp.start, 42, 0, nullptr);
-        int nOpen = (int)(rng() % 9);
         vector<Rec> recs;
         while (!over(s)) {
             Move m;

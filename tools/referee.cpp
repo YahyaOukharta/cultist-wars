@@ -299,7 +299,20 @@ static int exportFile(const char* path, const char* out) {
     long long games = 0, total = 0, broken = 0;
     long long label = getenv("CW_LABEL") ? atoll(getenv("CW_LABEL")) : 0;
     if (label) { initNet(); initSearch(); nodeLimit = label; }
+    // CW_STARTS=file: also write the position every CW_STARTS_EVERY plies (turns 10-110) as an
+    // M/S pair, dead units included with their owner, for CW_GEN to play out from (bot.cpp).
+    FILE* starts = getenv("CW_STARTS") ? fopen(getenv("CW_STARTS"), "w") : nullptr;
+    int every = getenv("CW_STARTS_EVERY") ? atoi(getenv("CW_STARTS_EVERY")) : 10;
+    string mline;
+    auto writeStart = [&]() {
+        if (!starts || s.turn < 10 || s.turn > 110 || s.turn % every) return;
+        fprintf(starts, "%s\nS %d %u", mline.c_str(), s.turn, s.seed);
+        for (int u = 0; u < NU; u++)
+            fprintf(starts, " %d,%d,%d,%d,%d", u, s.hp[u] > 0 ? s.hp[u] : 0, s.pos[u] % W, s.pos[u] / W, s.own[u]);
+        fprintf(starts, "\n");
+    };
     auto record = [&]() {
+        writeStart();
         Rec r;
         memset(&r, 0, sizeof r);
         for (int c = 0; c < NC; c++) if (wallAt[c]) r.walls[c >> 3] |= (uint8_t)(1 << (c & 7));
@@ -322,6 +335,7 @@ static int exportFile(const char* path, const char* out) {
             const char* p = l.c_str() + 2;
             for (int y = 0; y < H; y++) { memcpy(grid[y], p + y * (W + 1), W); grid[y][W] = 0; }
             initTables(grid);
+            mline = l;
             if (label) { memset(tt, 0, sizeof(TTE) << TT_BITS); memset(hist, 0, sizeof hist); }
             have = false; recs.clear();
         } else if (l[0] == 'S') {
@@ -337,6 +351,7 @@ static int exportFile(const char* path, const char* out) {
                 p += n;
             }
             s = fromObs(ob, seed, turn, nullptr);
+            if (turn) { for (int u = 0; u < NU; u++) s.own[u] = ob.own[u]; rehash(s); }   // mid-game start: dead units keep their owner
             have = true;
         } else if (l[0] == 'A' && have) {
             int turn, player, pos = 0;
@@ -359,6 +374,7 @@ static int exportFile(const char* path, const char* out) {
         }
     }
     fclose(f); fclose(o);
+    if (starts) fclose(starts);
     printf("%lld games, %lld positions -> %s (%lld games cut short by an unreadable action)\n", games, total, out, broken);
     return 0;
 }
