@@ -577,6 +577,12 @@ static inline int pick(Move* mv, int* sc, int i, int n) {
 #ifndef SE_DEPTH
 #define SE_DEPTH 6
 #endif
+#ifndef TLMR         // late non-killing shots on enemy units are reduced by half the quiet-move reduction (0 = off)
+#define TLMR 0
+#endif
+#ifndef PVLMR        // one ply less reduction at PV nodes (0 = off)
+#define PVLMR 0
+#endif
 #ifndef HASHQ        // a quiet hash move that cuts also updates killers and history (0 = off)
 #define HASHQ 0
 #endif
@@ -729,7 +735,11 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
 #if HLMR
                 r -= hist[me][m & 8191] / HLMR;
 #endif
+                if (PVLMR && pv) r--;
                 if (r < 0) r = 0;
+                if (r > depth - 2) r = depth - 2;
+            } else if (TLMR && msc >= 500000 && msc < 800000 && depth >= 3 && i >= 4) {
+                r = lmrTab[min(depth, 63)][min(i, 63)] / 2;
                 if (r > depth - 2) r = depth - 2;
             }
             v = -search(c, depth - 1 - r, -alpha - 1, -alpha, ply + 1);

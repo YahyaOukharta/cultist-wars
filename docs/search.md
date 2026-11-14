@@ -82,6 +82,11 @@ Measured and dropped: using 95% of the turn before stopping (`TM_PCT`, +5 ± 39 
 +9 ± 44); 47 ms per turn (a timeout costs more than 7% more nodes earn); staged
 tactical/quiet generation (only 30–43% of generating nodes never reach a quiet move).
 
+No second core: CodinGame runs the bot on one CPU. A probe with a second busy thread cut
+the main thread to 40–47% of its speed (8 CPUs are visible, one is granted), so a parallel
+search gains nothing. Between our turns the process gets about 10 ms of CPU; pondering on
+that is not worth its timeout risk.
+
 Real-time gates of 300 games (±40 Elo) cannot see a 10% speed gain (+14 Elo). A change
 that leaves the tree identical needs a benchmark and a fault check, not a strength gate.
 
