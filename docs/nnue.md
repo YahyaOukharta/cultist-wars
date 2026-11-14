@@ -125,8 +125,13 @@ validation loss does not predict playing strength at this level.
 | n11s | generations 3–12, n7a recipe | | 0.9394 / 0.384 | |
 | **n12a (v2.8a)** | n7a's data and recipe + 224k positions of our 1,622 arena games, searched again at 300k nodes (`arena_data.py export --label 300000`), repeated ×10 | +4 ± 17 | (trained on them) | **31.82** |
 
+| n13a (v2.9a) | n12a + 447k endgame positions (100k nodes, every move from turn 80 at 1M nodes) ×4 + 50k newer arena positions | +3 ± 17 vs n12a | 0.9628 / 0.376 † | 30.45 (reverted) |
+| n14a | n12a + 1.77M positions played out from 20,914 real mid-game positions (`CW_STARTS`), ×2 | −18 ± 17 vs n12a | 0.9625 / 0.378 † | |
+| n14b | same, play-outs ×5 | +6 ± 17 vs n12a | 0.9622 / 0.378 † | |
+
 AUC columns: 34k positions from 247 battles of v2.6 and v2.5's rerun, not in any training
-set at the time. The best-predicting net (n11d) did no better in the arena, so this
+set at the time. †: 30k positions from 224 later battles (v2.9a and v2.8a's second run),
+where n7a scores 0.9635 / 0.373 and n12a 0.9630 / 0.376: no net is separated by it. The best-predicting net (n11d) did no better in the arena, so this
 measure does not decide either.
 
 n12a's recipe (Kaggle GPU, `kaggle_train.py push n12a`): generations g1x, g2, g2b, g2c,
