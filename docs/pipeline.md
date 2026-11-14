@@ -234,6 +234,25 @@ python3 tools/kaggle_match.py fetch gate
 - **Pass:** not worse than the fixed-node result by more than the noise, and `faults 0/0`.
 - Skip 6b only for a net of the same size with the same search.
 
+**6d. Large samples for small steps.** Once versions differ by 20–40 Elo, 300–400 games
+(±35–40) decide nothing, and neither does one arena run (±0.4 points: v2.3 and v2.4 were
++42 Elo apart at real time and finished at 30.89 and 30.91). From v2.5 on:
+
+- A candidate change plays **1,200 games at fixed nodes** (±20 Elo): ten minutes on the
+  laptop, or one Kaggle kernel.
+- Anything that lands between +8 and +20 is repeated on several kernels and **pooled**;
+  the 95% interval of the pooled result must exclude zero. Example: history penalties +
+  singular extensions scored +8, +24, +18, +20, +19, +2 in six kernels: +15 [+7, +23] over
+  7,200 games. Accepted. Null move R3 scored +14 on the laptop, then +4, +4: rejected.
+- Combinations are measured, never summed: three changes worth "+17, +12, +14" on paper
+  scored −8 and +9 together.
+- Each kernel gets its own maps (the seed depends on the batch name and index).
+- A dispatcher loop pushes pending matches to whichever Kaggle account has a free session
+  and a collector pools the results by flag set (see the shell loops in the commit history
+  of this file's examples; `kaggle_match.py push NAME --games 1200 --nodes 20000 "src@flags" src`).
+- Accepted changes are **banked**; a version ships when the bank is worth about +35 Elo or
+  more against live in a direct 1,200-game match, and then still has to pass stage 7.
+
 **6c. Speed changes.** A change that leaves the search tree identical (same depth, score
 and node count at fixed nodes) cannot be weaker; it needs a speed number and a fault
 check, not a strength gate. Measure the speed on CodinGame itself:
