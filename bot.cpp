@@ -580,6 +580,9 @@ static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     return stand;
 }
 
+#ifndef PRUNE_BREAK  // leave the move loop at the first pruned quiet move instead of picking through the rest
+#define PRUNE_BREAK 1
+#endif
 #ifndef STAGED       // try the hash move before generating moves
 #define STAGED 1
 #endif
@@ -661,8 +664,10 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
         }
         bool quiet = msc < 450000, threat = quiet && msc >= 420000;
         if (i > 0 && quiet && !threat && !pv && best > -MATE + 400) {
-            if (LMP && depth <= LMP_D && i >= LMP + (LMP_LIN ? LMP_LIN * depth : depth * depth)) continue;
-            if (FUT && depth <= FUT_D && ev + FUT * depth <= alpha) continue;
+            // Moves come in descending score, so everything after a pruned quiet move is a quiet move
+            // too, and both conditions stay true (i grows, alpha only rises): stop instead of skipping.
+            if (LMP && depth <= LMP_D && i >= LMP + (LMP_LIN ? LMP_LIN * depth : depth * depth)) { if (PRUNE_BREAK) break; continue; }
+            if (FUT && depth <= FUT_D && ev + FUT * depth <= alpha) { if (PRUNE_BREAK) break; continue; }
             if (HPRUNE && depth <= 4 && msc < -HPRUNE * depth) continue;
         }
         State c = s;
