@@ -562,6 +562,31 @@ static inline int pick(Move* mv, int* sc, int i, int n) {
     return i;
 }
 
+#ifndef IMP          // "improving": static eval above the one two plies ago relaxes pruning, below tightens it (0 = off)
+#define IMP 0
+#endif
+#ifndef HMAL         // history penalty for quiet moves tried before the one that cut (0 = off)
+#define HMAL 0
+#endif
+#ifndef HLMR         // late move reduction changes by history / HLMR (0 = off)
+#define HLMR 0
+#endif
+#ifndef SE           // singular extension margin per depth (0 = off)
+#define SE 0
+#endif
+#ifndef SE_DEPTH
+#define SE_DEPTH 6
+#endif
+#ifndef HASHQ        // a quiet hash move that cuts also updates killers and history (0 = off)
+#define HASHQ 0
+#endif
+#ifndef QDELTA       // quiescence skips a non-killing shot when stand + QDELTA + damage * QDHP cannot reach alpha (0 = off)
+#define QDELTA 0
+#endif
+#ifndef QDHP
+#define QDHP 80
+#endif
+static int16_t evStack[MAXTURN + 16];
 static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     if (over(s)) return terminal(s, ply);
     nodes++;
@@ -572,6 +597,7 @@ static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     int n = gen(s, mv, sc, 2);
     for (int i = 0; i < n; i++) {
         pick(mv, sc, i, n);
+        if (QDELTA && sc[i] >= 500000 && sc[i] < 800000 && stand + QDELTA + (sc[i] - 500000) / 1000 * QDHP < alpha) continue;
         State c = s;
         apply(c, mv[i]);
         int v = -qsearch(c, -beta, -alpha, ply + 1, qd + 1);
@@ -600,7 +626,7 @@ static bool legalMove(const State& s, Move m) {
         return m == mk(WAIT, 0, 0);
     }
 }
-static int search(const State& s, int depth, int alpha, int beta, int ply, bool allowNull = true) {
+static int search(const State& s, int depth, int alpha, int beta, int ply, bool allowNull = true, Move excl = NOMOVE) {
     if (over(s)) return terminal(s, ply);
     if (depth <= 0) return qsearch(s, alpha, beta, ply, 0);
     nodes++;
@@ -609,19 +635,23 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     U64 k = key(s);
     TTE* e = &tt[k & TT_MASK];
     Move ttm = NOMOVE;
-    int ev = EV_NONE;
+    int ev = EV_NONE, ttScore = 0, ttDepth = -1, ttFlag = 0;
     if (e->key == (uint32_t)(k >> 32)) {
         ttm = e->move;
         if (TT_EV && e->flag) ev = e->ev;
-        if (e->depth >= depth && !pv) {
+        ttScore = e->score; ttDepth = e->depth; ttFlag = e->flag;
+        if (ttScore > MATE - 400) ttScore -= ply; else if (ttScore < -MATE + 400) ttScore += ply;
+        if (e->depth >= depth && !pv && excl == NOMOVE) {
             int v = e->score;
             if (v > MATE - 400) v -= ply; else if (v < -MATE + 400) v += ply;
             if (e->flag == TT_EXACT || (e->flag == TT_LOWER && v >= beta) || (e->flag == TT_UPPER && v <= alpha)) return v;
         }
     }
     if (ev == EV_NONE) ev = evalStm(s);
-    if (!pv && abs(beta) < MATE - 400) {
-        if (RFP && depth <= RFP_MAXD && ev - RFP * depth >= beta) return ev;
+    evStack[ply] = (int16_t)ev;
+    bool improving = IMP && ply >= 2 && ev > evStack[ply - 2];
+    if (!pv && abs(beta) < MATE - 400 && excl == NOMOVE) {
+        if (RFP && depth <= RFP_MAXD && ev - RFP * (depth - improving) >= beta) return ev;
         if (NMP && allowNull && depth >= 3 && ev >= beta) {
             State c = s;
             apply(c, mk(WAIT, 0, 0));
@@ -633,6 +663,19 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     if (IIR && depth >= IIR && ttm == NOMOVE) depth--;
     // The hash move is searched before any move is generated: most cutoffs come from it.
     bool ttOk = STAGED && ttm != NOMOVE && legalMove(s, ttm);
+    // Singular extension: if no other move comes close to the hash move at reduced depth, search
+    // the hash move one ply deeper; if another move also beats beta, cut (multi-cut).
+    int ext = 0;
+    if (SE && depth >= SE_DEPTH && ttOk && excl == NOMOVE && ply > 0 && ttDepth >= depth - 3 && (ttFlag == TT_LOWER || ttFlag == TT_EXACT) &&
+        abs(ttScore) < MATE - 400) {
+        int sb = ttScore - SE * depth;
+        int v = search(s, (depth - 1) / 2, sb - 1, sb, ply, false, ttm);
+        if (stopped) return 0;
+        if (v < sb) ext = 1;
+        else if (sb >= beta) return sb;
+    }
+    Move tried[64];
+    int nt = 0;
     Move mv[256]; int sc[256];
     int n = 0, gi = 0, me = s.turn & 1;
     bool generated = false;
@@ -662,23 +705,31 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
             m = mv[gi]; msc = sc[gi]; gi++;
             if (msc == -2000000000) break;
         }
+        if (m == excl) continue;
         bool quiet = msc < 450000, threat = quiet && msc >= 420000;
+        if (HASHQ && msc == 2000000 && mType(m) == MOVE) quiet = true;
         if (i > 0 && quiet && !threat && !pv && best > -MATE + 400) {
             // Moves come in descending score, so everything after a pruned quiet move is a quiet move
             // too, and both conditions stay true (i grows, alpha only rises): stop instead of skipping.
-            if (LMP && depth <= LMP_D && i >= LMP + (LMP_LIN ? LMP_LIN * depth : depth * depth)) { if (PRUNE_BREAK) break; continue; }
+            if (LMP && depth <= LMP_D && i >= (LMP + (LMP_LIN ? LMP_LIN * depth : depth * depth)) / (IMP && !improving ? 2 : 1)) { if (PRUNE_BREAK) break; continue; }
             if (FUT && depth <= FUT_D && ev + FUT * depth <= alpha) { if (PRUNE_BREAK) break; continue; }
             if (HPRUNE && depth <= 4 && msc < -HPRUNE * depth) continue;
         }
         State c = s;
         apply(c, m);
         int v;
-        if (i == 0) v = -search(c, depth - 1, -beta, -alpha, ply + 1);
+        if (quiet && nt < 64) tried[nt++] = m;
+        if (i == 0) v = -search(c, depth - 1 + ext, -beta, -alpha, ply + 1);
         else {
             int r = 0;
             if (LMR && quiet && depth >= 3 && i >= 3) {
                 r = lmrTab[min(depth, 63)][min(i, 63)];
                 if (threat) r = r / 2;
+                if (IMP && !improving) r++;
+#if HLMR
+                r -= hist[me][m & 8191] / HLMR;
+#endif
+                if (r < 0) r = 0;
                 if (r > depth - 2) r = depth - 2;
             }
             v = -search(c, depth - 1 - r, -alpha - 1, -alpha, ply + 1);
@@ -695,12 +746,19 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
                         if (killer[ply][0] != m) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
                         int& h = hist[me][m & 8191];
                         h += depth * depth - h * depth * depth / 16384;
+                        if (HMAL)
+                            for (int j = 0; j < nt; j++)
+                                if (tried[j] != m) {
+                                    int& g = hist[me][tried[j] & 8191];
+                                    g -= depth * depth + g * depth * depth / 16384;
+                                }
                     }
                     break;
                 }
             }
         }
     }
+    if (excl != NOMOVE) return best == -INF ? alpha : best;      // singular search: nothing is stored
     int st = best;
     if (st > MATE - 400) st += ply; else if (st < -MATE + 400) st -= ply;
     e->key = (uint32_t)(k >> 32); e->move = bm; e->score = (int16_t)st; e->ev = (int16_t)ev; e->depth = (int8_t)depth;
