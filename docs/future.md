@@ -4,9 +4,26 @@ What to try next, ordered by expected gain per unit of work. Sources are at the 
 "Measured elsewhere" numbers come from other games and engines; nothing here is proven
 for Cultist Wars until it passes a gate match.
 
-## Plan after v2.3: past rank 1, with margin
+## State after v2.8a (2026-11-14)
 
-State: rank 2 at 30.9; aCat 32.7. Target: 34+ (a full point clear of whoever is first).
+Rank 1 of 401 at 32.48, 0.4 ahead of second. Open:
+
+- **Self-play from real positions.** `CW_STARTS`: 20,914 mid-game positions taken from our
+  arena battles (turns 10–110), played out at 100k nodes per move: 1.77M positions. Nets
+  n14a–n14d train on them with different weights; none has been through the arena yet.
+- **Second seat** is the weak side: 43% against the top three, 72% against the rest (first
+  seat 85% and 96%).
+- **A cheaper predictor of arena strength.** One arena run resolves about 50 Elo; self-play,
+  a pool of older versions and held-out battle accuracy all failed to predict it. Test
+  games replaying many arena maps in pairs, or several arena runs per candidate, are the
+  candidates.
+- Tried after v2.5 and not kept: longer training of the same net (v2.6), the best net on
+  held-out battles (v2.7c), more turn time (v2.7a, equal), endgame positions searched at
+  1M nodes per move (v2.9a). Details in [history.md](history.md).
+
+## Plan after v2.3: past rank 1, with margin (reached with v2.8a)
+
+State then: rank 2 at 30.9; aCat 32.7. Target: 34+ (a full point clear of whoever is first).
 
 ### What the measurements say
 

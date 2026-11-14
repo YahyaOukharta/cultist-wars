@@ -22,7 +22,7 @@ the arena).
 | v2.7c | v2.5 with the n11d net (generations 3–12, 65.6M positions, result weight 0.6, 40 epochs): best on held-out real battles (AUC 0.9421, log-loss 0.360 against 0.383 for n7a, 34k positions from 247 battles) | −7 ± 14 at 20k nodes (2,400 games) | 29.55; on v2.5's mix 67.4% (v2.5 71.2 / 75.5): top 3 first seat 10/16, second 5/22. Reverted to v2.5 | 3 |
 | v2.8a | v2.5 search with the n12a net: n7a's data and recipe + 224k positions from our 1,622 arena games, each searched again at 300k nodes for its label, repeated 10× | +4 ± 17 at 20k nodes (1,600 games) | **31.82** at 100%, drifting to **32.51** (aCat 32.52) over the next 1.5 hours; on v2.5's pooled mix 75.4% (v2.5 72.3% over three runs): top 3 first seat 18/22, second 6/16 | **2** |
 | v2.9a | v2.8a with the n13a net: n12a's data + 447k endgame positions (self-play at 100k nodes, every move from turn 80 searched at 1M nodes) ×4 + the newest arena positions | +3 ± 17 vs n12a (1,600 games); on v2.6's lost game it saw the collapse 8 plies sooner | 30.45; on v2.5's pooled mix 72.2% (v2.8a 76.0%). Reverted to v2.8a | 3 |
-| v2.8a again | resubmitted unchanged | | | |
+| v2.8a again | resubmitted unchanged (submission 41715615) | | **32.48, rank 1 of 401** (aCat 32.06, Noobkins 31.74); on v2.5's pooled mix 78.2%, both v2.8a runs 77.2%: top 3 first seat 36.5/43, second 15.5/36 | **1** |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 

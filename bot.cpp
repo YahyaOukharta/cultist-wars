@@ -596,8 +596,8 @@ static inline int pick(Move* mv, int* sc, int i, int n) {
 #ifndef CMH          // countermove: the quiet move that last refuted the previous move is tried after the killers (0 = off)
 #define CMH 0
 #endif
-#ifndef QTT          // transposition table probe/store in quiescence (0 = off)
-#define QTT 1
+#ifndef QTT          // transposition table probe/store in quiescence (0 = off; +13 Elo in self-play, unproven in the arena)
+#define QTT 0
 #endif
 #ifndef QTTS         // quiescence also stores stand-pat cutoffs (0 = off)
 #define QTTS 0
