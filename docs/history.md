@@ -66,6 +66,22 @@ Score against the eight players above us, by seat:
 | v2.1 | 69% | 38% |
 | v2.2 | 67% | 33% |
 
+v2.5 (submission 41711486, 170 battles), by opponent and seat (W–L–D):
+
+| | first seat | second seat |
+|---|---|---|
+| aCat | 4–0–1 | 0–9–1 |
+| Noobkins | 3–0–0 | 4–6–1 |
+| MSz | 8–1–0 | 3–3–2 |
+| ziele | 30–0–2 | 16–14–6 |
+| Zylo | 4–1–0 | 8–2–2 |
+
+Between the top bots the seat decides the game: every second-seat loss to aCat and ziele
+was evaluated below −300 from our first move on (200k-node re-search with n7e80), mostly
+−800 to −1500. The rating is made by second-seat results against the whole field; the
+head-to-head against aCat is even once seats are counted (the 4–9–2 was 5 first-seat
+games against 10 second-seat ones).
+
 The first player has a large edge in this game (57–68% in self-play too). v2.2's 37 losses
 to those players, searched again move by move: as second player we were never ahead in 23
 of 26; as first player 8 of 11 were lost from an evaluation of +1000 or more, turning only

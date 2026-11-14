@@ -36,7 +36,7 @@ for line in s.split("\n"):
     out.append(line)
 if not a.keep_comments:      # comments and blank lines cost characters; no string in the source contains "//"
     out = [re.sub(r"\s*//(?!@NET_DATA@).*$", "", l) for l in out]
-    out = [l for l in out if l.strip()]
+    out = [l.strip() for l in out if l.strip()]   # indentation costs characters too
 s = "\n".join(out)
 defs = "".join(f"#define {d.replace('=', ' ', 1)}\n" for d in a.D)
 assert "//@NET_DATA@" in s

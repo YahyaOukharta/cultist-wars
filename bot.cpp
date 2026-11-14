@@ -38,12 +38,13 @@ static const Move NOMOVE = 0xFFFF;
 #define TT_BITS 19
 #endif
 #ifdef CGBENCH        // benchmark build: these switches become run-time so one process can time every setting
-static int gTtEv = 1, gStaged = 1, gThreat = 1, gSimd = 1;
+static int gTtEv = 1, gStaged = 1, gThreat = 0, gSimd = 1, gQtt = 0;
 static unsigned long long gTtMask = (1ULL << TT_BITS) - 1;
 #define TT_EV gTtEv
 #define STAGED gStaged
 #define THREAT gThreat
 #define TT_MASK gTtMask
+#define QTT gQtt
 #endif
 #ifndef LMR
 #define LMR 1
@@ -592,11 +593,52 @@ static inline int pick(Move* mv, int* sc, int i, int n) {
 #ifndef QDHP
 #define QDHP 80
 #endif
+#ifndef CMH          // countermove: the quiet move that last refuted the previous move is tried after the killers (0 = off)
+#define CMH 0
+#endif
+#ifndef QTT          // transposition table probe/store in quiescence (0 = off)
+#define QTT 0
+#endif
+#ifndef TT2          // two-entry buckets: probe both, replace the shallower / older entry (0 = one entry, always replace)
+#define TT2 0
+#endif
 static int16_t evStack[MAXTURN + 16];
+static Move mvStack[MAXTURN + 16];
+static Move counterMv[2][1 << 13];
+static uint8_t ttAge;
+static inline TTE* ttProbe(U64 k) {
+#if TT2
+    TTE* b = &tt[(k & TT_MASK) & ~1ULL];
+    uint32_t kk = (uint32_t)(k >> 32);
+    if (b[0].key == kk) return b;
+    if (b[1].key == kk) return b + 1;
+    int v0 = b[0].depth - 4 * ((ttAge - (b[0].flag >> 2)) & 63), v1 = b[1].depth - 4 * ((ttAge - (b[1].flag >> 2)) & 63);
+    return v0 <= v1 ? b : b + 1;
+#else
+    return &tt[k & TT_MASK];
+#endif
+}
 static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     if (over(s)) return terminal(s, ply);
     nodes++;
-    int stand = evalStm(s);
+    // QTT: transposition table in quiescence: bounds from any earlier visit, and the stored static eval.
+    U64 k = 0;
+    TTE* e = nullptr;
+    bool hit = false;
+    int stand = EV_NONE, a0 = alpha;
+    if (QTT) {
+        k = key(s);
+        e = ttProbe(k);
+        hit = e->key == (uint32_t)(k >> 32);
+        if (hit && (e->flag & 3)) {
+            int v = e->score, f = e->flag & 3;
+            if (v > MATE - 400) v -= ply; else if (v < -MATE + 400) v += ply;
+            if (f == TT_EXACT || (f == TT_LOWER && v >= beta) || (f == TT_UPPER && v <= alpha)) return v;
+            if (TT_EV) stand = e->ev;
+        }
+    }
+    if (stand == EV_NONE) stand = evalStm(s);
+    int ev = stand;
     if (stand >= beta || qd >= QMAX) return stand;
     if (stand > alpha) alpha = stand;
     Move mv[64]; int sc[64];
@@ -608,6 +650,12 @@ static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
         apply(c, mv[i]);
         int v = -qsearch(c, -beta, -alpha, ply + 1, qd + 1);
         if (v > stand) { stand = v; if (v > alpha) { alpha = v; if (v >= beta) break; } }
+    }
+    if (QTT && (!hit ? e->depth <= 0 || TT2 : e->depth <= 0)) {
+        int st = stand;
+        if (st > MATE - 400) st += ply; else if (st < -MATE + 400) st -= ply;
+        e->key = (uint32_t)(k >> 32); e->move = NOMOVE; e->score = (int16_t)st; e->ev = (int16_t)ev; e->depth = 0;
+        e->flag = (uint8_t)((stand >= beta ? TT_LOWER : stand > a0 ? TT_EXACT : TT_UPPER) | (TT2 ? (ttAge & 63) << 2 : 0));
     }
     return stand;
 }
@@ -639,18 +687,18 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     if (timeUp()) { stopped = true; return 0; }
     bool pv = beta - alpha > 1;
     U64 k = key(s);
-    TTE* e = &tt[k & TT_MASK];
+    TTE* e = ttProbe(k);
     Move ttm = NOMOVE;
     int ev = EV_NONE, ttScore = 0, ttDepth = -1, ttFlag = 0;
     if (e->key == (uint32_t)(k >> 32)) {
         ttm = e->move;
-        if (TT_EV && e->flag) ev = e->ev;
-        ttScore = e->score; ttDepth = e->depth; ttFlag = e->flag;
+        if (TT_EV && (e->flag & 3)) ev = e->ev;
+        ttScore = e->score; ttDepth = e->depth; ttFlag = e->flag & 3;
         if (ttScore > MATE - 400) ttScore -= ply; else if (ttScore < -MATE + 400) ttScore += ply;
         if (e->depth >= depth && !pv && excl == NOMOVE) {
             int v = e->score;
             if (v > MATE - 400) v -= ply; else if (v < -MATE + 400) v += ply;
-            if (e->flag == TT_EXACT || (e->flag == TT_LOWER && v >= beta) || (e->flag == TT_UPPER && v <= alpha)) return v;
+            if (ttFlag == TT_EXACT || (ttFlag == TT_LOWER && v >= beta) || (ttFlag == TT_UPPER && v <= alpha)) return v;
         }
     }
     if (ev == EV_NONE) ev = evalStm(s);
@@ -661,6 +709,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
         if (NMP && allowNull && depth >= 3 && ev >= beta) {
             State c = s;
             apply(c, mk(WAIT, 0, 0));
+            mvStack[ply] = mk(WAIT, 0, 0);
             int v = -search(c, depth - 1 - NMP - depth / 4, -beta, -beta + 1, ply + 1, false);
             if (stopped) return 0;
             if (v >= beta && v < MATE - 400) return v;
@@ -684,6 +733,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     int nt = 0;
     Move mv[256]; int sc[256];
     int n = 0, gi = 0, me = s.turn & 1;
+    Move cm = CMH && ply > 0 ? counterMv[me][mvStack[ply - 1] & 8191] : NOMOVE;
     bool generated = false;
     int best = -INF, a0 = alpha;
     Move bm = NOMOVE;
@@ -702,6 +752,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
                     } else if (sc[j] > -100000 && sc[j] < 100000) {   // quiet steps and shots at neutrals
                         if (g == killer[ply][0]) sc[j] = 400000;
                         else if (g == killer[ply][1]) sc[j] = 399000;
+                        else if (CMH && g == cm) sc[j] = 398000;
                         else sc[j] += hist[me][g & 8191];
                     }
                 }
@@ -723,6 +774,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
         }
         State c = s;
         apply(c, m);
+        mvStack[ply] = m;
         int v;
         if (quiet && nt < 64) tried[nt++] = m;
         if (i == 0) v = -search(c, depth - 1 + ext, -beta, -alpha, ply + 1);
@@ -754,6 +806,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
                 if (v >= beta) {
                     if (quiet) {
                         if (killer[ply][0] != m) { killer[ply][1] = killer[ply][0]; killer[ply][0] = m; }
+                        if (CMH && ply > 0) counterMv[me][mvStack[ply - 1] & 8191] = m;
                         int& h = hist[me][m & 8191];
                         h += depth * depth - h * depth * depth / 16384;
                         if (HMAL)
@@ -772,7 +825,7 @@ static int search(const State& s, int depth, int alpha, int beta, int ply, bool 
     int st = best;
     if (st > MATE - 400) st += ply; else if (st < -MATE + 400) st -= ply;
     e->key = (uint32_t)(k >> 32); e->move = bm; e->score = (int16_t)st; e->ev = (int16_t)ev; e->depth = (int8_t)depth;
-    e->flag = best >= beta ? TT_LOWER : best > a0 ? TT_EXACT : TT_UPPER;
+    e->flag = (uint8_t)((best >= beta ? TT_LOWER : best > a0 ? TT_EXACT : TT_UPPER) | (TT2 ? (ttAge & 63) << 2 : 0));
     return best;
 }
 
@@ -782,7 +835,7 @@ static Info info;
 static Move think(const State& root, double budgetMs) {
     auto t0 = chrono::steady_clock::now();
     deadline = t0 + chrono::microseconds((long long)(budgetMs * 1000));
-    nodes = 0; stopped = false;
+    nodes = 0; stopped = false; ttAge++;
     memset(killer, 0xFF, sizeof killer);
     for (auto& side : hist) for (int& h : side) h /= 2;
     Move mv[256]; int sc[256];
@@ -801,6 +854,7 @@ static Move think(const State& root, double budgetMs) {
                 if (i) pick(mv, sc, i, n);
                 State c = root;
                 apply(c, mv[i]);
+                mvStack[0] = mv[i];
                 int v;
                 if (i == 0) v = -search(c, depth - 1, -hi, -alpha, 1);
                 else {
@@ -1042,12 +1096,12 @@ static void cgBench() {
         "x.x.......x.x x...........x x...........x ............. ............. x...........x x...........x|0,7,2,2,0 3,8,3,1,0 4,7,3,4,0 5,10,1,4,0 6,1,1,5,0 10,10,9,2,1 11,10,9,3,1 13,10,9,1,1",
         "............. .x.........x. ...x.x.x.x... ..x.......x.. .....x.x..... ............. x...........x|0,10,0,3,0 1,10,12,3,1 2,10,4,3,2 3,10,4,2,2 4,10,4,0,2 5,10,3,6,2 6,10,4,5,2 7,10,2,0,2 8,10,8,3,2 9,10,8,2,2 10,10,8,0,2 11,10,9,6,2 12,10,8,5,2 13,10,10,0,2",
         "............. x...........x ............. ..x.......x.. ..x.......x.. x....x.x....x ..x.x...x.x..|0,9,3,2,0 1,10,9,1,1 2,10,5,3,2 3,7,2,0,0 4,7,3,3,0 5,10,3,0,0 6,4,1,3,0 8,10,7,3,2 9,10,10,0,1 10,6,9,3,1 11,10,9,0,1 12,10,11,3,1"};
-    // tt-eval, staged, threat, simd, table bits
-    static const int cfg[8][5] = {{0, 0, 1, 0, 21}, {0, 0, 1, 1, 21}, {1, 0, 1, 1, 21}, {1, 1, 1, 1, 21},
-                                  {1, 1, 1, 1, 19}, {1, 1, 1, 1, 18}, {1, 1, 1, 1, 17}, {1, 1, 0, 1, 21}};
+    // tt-eval, staged, threat, simd, table bits, quiescence table
+    static const int cfg[8][6] = {{1, 1, 0, 1, 19, 0}, {1, 1, 0, 1, 19, 1}, {1, 1, 0, 1, 19, 0}, {1, 1, 0, 1, 19, 1},
+                                  {1, 1, 0, 1, 19, 0}, {1, 1, 0, 1, 19, 1}, {1, 1, 0, 1, 19, 0}, {1, 1, 0, 1, 19, 1}};
     for (int rep = 0; rep < 2; rep++)
     for (int c = 0; c < 8; c++) {
-        gTtEv = cfg[c][0]; gStaged = cfg[c][1]; gThreat = cfg[c][2]; gSimd = cfg[c][3]; gTtMask = (1ULL << cfg[c][4]) - 1;
+        gTtEv = cfg[c][0]; gStaged = cfg[c][1]; gThreat = cfg[c][2]; gSimd = cfg[c][3]; gTtMask = (1ULL << cfg[c][4]) - 1; gQtt = cfg[c][5];
         long long nn = 0; double ms = 0;
         for (int k = 0; k < 3; k++) {
             char grid[H][W + 2];
@@ -1068,10 +1122,10 @@ static void cgBench() {
             think(s, 1e9);
             nn += info.nodes; ms += info.ms;
         }
-        fprintf(stderr, "CGBENCH %d.%d ev%d st%d th%d simd%d tt%d %.0f knps\n", rep, c, cfg[c][0], cfg[c][1], cfg[c][2], cfg[c][3], cfg[c][4], nn / ms);
+        fprintf(stderr, "CGBENCH %d.%d ev%d st%d th%d simd%d tt%d q%d %.0f knps\n", rep, c, cfg[c][0], cfg[c][1], cfg[c][2], cfg[c][3], cfg[c][4], cfg[c][5], nn / ms);
     }
     nodeLimit = 0;
-    gTtEv = gStaged = gThreat = gSimd = 1; gTtMask = (1ULL << TT_BITS) - 1;
+    gTtEv = gStaged = gSimd = 1; gThreat = 0; gQtt = 0; gTtMask = (1ULL << TT_BITS) - 1;
     memset(tt, 0, sizeof(TTE) << TT_BITS);
     memset(hist, 0, sizeof hist);
 }
