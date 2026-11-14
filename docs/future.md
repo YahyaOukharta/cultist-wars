@@ -4,20 +4,73 @@ What to try next, ordered by expected gain per unit of work. Sources are at the 
 "Measured elsewhere" numbers come from other games and engines; nothing here is proven
 for Cultist Wars until it passes a gate match.
 
-## State after v2.3
+## Plan after v2.3: past rank 1, with margin
 
-Rank 2 (30.89; aCat 32.7 ahead). Measured flat: net width, relational inputs, search constants, more self-play
-generations at the same depth (+15 for the last one). Still open, in the order they will
-be tried:
+State: rank 2 at 30.9; aCat 32.7. Target: 34+ (a full point clear of whoever is first).
 
-- [ ] **Second seat against the top three** (1–7–1 in the replay suite): the wall.
-- [ ] **Deeper teacher**: generations searched at 60k–100k nodes per move; a net trained
-  only on the 20k-node generations (dropping the 25M positions of handcrafted-eval games).
-- [ ] **Time**: the search uses 34 of 44 ms on average (`TM_PCT`); real-time test running.
-- [ ] **Holding won first-seat games**: 8 of 11 first-seat losses of v2.2 came from +1000
-  or better and turned after turn 84 (rotation of damaged units, focused fire).
-- [ ] Our arena battles (92k positions against real opponents) as a validation set and as
-  weighted training data.
+### What the measurements say
+
+| Measurement | Result | Consequence |
+|---|---|---|
+| Same bot, 2× nodes (20k→40k, 80k→160k) | +105, +103 Elo | Speed does not saturate. 10% more nodes ≈ +14 Elo ≈ +0.2 arena points |
+| Same bot, 4× nodes | +178 Elo | |
+| Our move at 100k nodes vs at 1.5M nodes (2,700 positions) | same move in 70–74% | A quarter of our moves change with more search |
+| aCat's moves vs ours at 100k / 1.5M nodes | 49% / 49% | He is not us searching deeper: a different evaluation. Not something to copy |
+| Net generations 2, 3, 4, 5 at 20k-node teacher | +27, +32, +15, +33 | Saturated at this teacher depth |
+| Deep-only data (55M) vs all data (90M) | equal | The weak early generations add nothing |
+| Net width 128, relational inputs, 16 search constants | flat | Not the lever |
+| Optimised profile | search body 25%, move generation 18%, accumulator 13%, move picking 11%, eval 9%, shot resolution 7%, apply 7% | No single hot spot: many small wins |
+
+The players above us (same university group, all resubmitting this month) say the same of
+their own bots: "4× the evaluations was worth +7.65 points" (aCat), "efficiency is my
+strength" (MSz). They run handcrafted evaluations fast; we run a learned one. Our edge is
+the evaluation, theirs is speed. The plan is to take their edge without giving up ours.
+
+### Steps, in order. Each ends in a gate from [pipeline.md](pipeline.md)
+
+**Step 1. Speed sprint** (expected +40 to +70 Elo; in progress)
+- [x] AVX2 output layer + static eval kept in the transposition table: +9–12% nodes/s on x86.
+- [x] Hash move searched before any move is generated.
+- [x] Single-pass accumulator update.
+- [ ] Transposition table that fits in cache: 131k entries is +24–29% nodes/s, 262k +14–20%.
+  Real-time gates decide the size (a smaller table also searches a little worse per node).
+- [ ] Two-entry buckets with depth-preferred replacement, to get the small table's speed
+  with the big table's memory.
+- [ ] Staged generation: conversions and enemy shots first, quiet moves only if needed.
+- [ ] Cheaper leader-threat scoring in the generator.
+- Gate: Kaggle x86 benchmark (`kaggle_match.py bench`) for speed, then real time at 50 ms
+  against v2.3. Fixed-node matches cannot see any of this.
+
+**Step 2. Ship v2.4 = speed + generation-5 net** (expected +1 arena point)
+- The deep-only generation-5 net is +33 Elo at equal nodes and independent of step 1.
+- Gate: real time vs v2.3, then test games against the top three on both seats.
+
+**Step 3. Time** (expected +5 to +10 Elo)
+- 44 ms → 47 ms with a backoff after any slow turn (aCat runs 48 ms with one). Needs a
+  timeout count over 100+ test games before it ships: one timeout costs more than it earns.
+
+**Step 4. A deeper teacher** (expected +30 to +50 Elo per step, slower)
+- Generation 6 is being played at 60k nodes per move. Each speed gain from step 1 also
+  makes the teacher deeper at the same cost.
+- Drop generations 0 and 1 from training; retrain from the deep generations only.
+
+**Step 5. Spend the saved characters** (only after steps 1–4)
+- The packer now strips comments: 93.5k of 100k. If width starts to pay with deeper data,
+  there is room for about 72 hidden units.
+
+**Step 6. Judge better**
+- Second-seat replay suite for every candidate, not only the shipped one.
+- A local gauntlet of frozen versions with different styles (v1.1 handcrafted, v2.0,
+  v2.2) as a second opinion on self-play.
+- SPRT on game pairs instead of fixed 300–400 games.
+
+### What is deliberately not on the list
+
+- More net capacity, more input features, more tuning of search constants: measured flat.
+- Copying aCat's style: half his moves differ from ours at any depth, and we cannot see
+  his evaluation.
+- Anything that needs other players' game histories: the official API gives only our own
+  battles, and that is the line.
 
 The sections below are the original research notes; items already tried are in
 [search.md](search.md) and [nnue.md](nnue.md).
