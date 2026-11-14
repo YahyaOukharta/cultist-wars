@@ -94,7 +94,7 @@ static unsigned long long gTtMask = (1ULL << TT_BITS) - 1;
 #define HPRUNE 0
 #endif
 #ifndef THREAT       // leader steps that threaten a conversion are never pruned and reduced less (0 = off)
-#define THREAT 1
+#define THREAT 0
 #endif
 #ifndef IIR          // internal iterative reduction from this depth (0 = off)
 #define IIR 0

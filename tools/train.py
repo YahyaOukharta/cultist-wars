@@ -74,6 +74,8 @@ def main():
     ap.add_argument("--lam", type=float, default=0.6, help="weight of game result vs search score")
     ap.add_argument("--k", type=float, default=600.0, help="score scale for sigmoid(score/k)")
     ap.add_argument("--no-yflip", action="store_true", help="no up-down mirror augmentation")
+    ap.add_argument("--margin-w", type=float, default=0.0, help="share of the result target replaced by sigmoid(margin-c * final unit margin)")
+    ap.add_argument("--margin-c", type=float, default=1.0)
     ap.add_argument("--wd", type=float, default=0.0)
     ap.add_argument("--wclip", type=float, default=127 / 255, help="clip first-layer weights (int8 at QA=255); 0 = off")
     ap.add_argument("--init", help="float checkpoint (.pt) to continue from")
@@ -89,6 +91,10 @@ def main():
     nval = min(200000, n // 20)
     res = (data["result"].astype(np.float32) + 1) / 2
     print(f"{n} positions from {len(paths)} files; stm result win {np.mean(res == 1):.3f} draw {np.mean(res == .5):.3f}", flush=True)
+    hard = res
+    if a.margin_w > 0:      # a win by three units is a surer win than a win by one
+        soft = 1 / (1 + np.exp(-a.margin_c * data["margin"].astype(np.float32)))
+        res = ((1 - a.margin_w) * res + a.margin_w * soft).astype(np.float32)
     sc = np.clip(data["score"].astype(np.float32), -4000, 4000)
     target = (a.lam * res + (1 - a.lam) / (1 + np.exp(-sc / a.k))).astype(np.float32)
 
@@ -97,7 +103,7 @@ def main():
     WL = torch.from_numpy(np.ascontiguousarray(data["walls"])).to(dev)     # (n, 12) bytes
     T = torch.from_numpy(data["turn"].astype(np.uint8)).to(dev)
     Y = torch.from_numpy(target).to(dev)
-    R = torch.from_numpy(res).to(dev)
+    R = torch.from_numpy(hard).to(dev)
     del data
     hpb = torch.tensor(HPB, device=dev)
     bits = torch.tensor([[(v >> i) & 1 for i in range(8)] for v in range(256)], dtype=torch.float32, device=dev)
