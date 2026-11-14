@@ -566,13 +566,13 @@ static inline int pick(Move* mv, int* sc, int i, int n) {
 #define IMP 0
 #endif
 #ifndef HMAL         // history penalty for quiet moves tried before the one that cut (0 = off)
-#define HMAL 0
+#define HMAL 1
 #endif
 #ifndef HLMR         // late move reduction changes by history / HLMR (0 = off)
 #define HLMR 0
 #endif
 #ifndef SE           // singular extension margin per depth (0 = off)
-#define SE 0
+#define SE 6
 #endif
 #ifndef SE_DEPTH
 #define SE_DEPTH 6
