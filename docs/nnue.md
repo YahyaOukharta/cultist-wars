@@ -95,5 +95,20 @@ python3 tools/train.py -o tools/nets/n.bin 'data/*.bin' --hidden 64 --epochs 40 
 | Result weight 0.2 / 0.3 / 0.4 / 0.6 / 0.8 | −2 / −2 / +21 / 0 / −18: flat from 0.2 to 0.6 |
 | Result target softened by the final unit margin, `sigmoid(0.7 · margin)` (`--margin-w 1`) | +24 (half weight: +15) |
 
+### A second opinion: real battles
+
+Our own arena battles, rebuilt from seed and moves (`arena_data.py export`), give 80k
+positions from 567 games against the eight players above us. How well a net ranks the
+eventual winner there (AUC over decided games) follows the arena history and does not
+depend on self-play:
+
+| Net | n0c (v2.0) | n1a (v2.1) | n1x (v2.2) | n3a (v2.3) | n5d (v2.4) | n5a | n6d | n7b | n7a (v2.5) |
+|---|---|---|---|---|---|---|---|---|---|
+| AUC | 0.9253 | 0.9386 | 0.9412 | 0.9448 | 0.9448 | 0.9466 | 0.9477 | 0.9467 | 0.9460 |
+
+By phase (n7a): 0.80 before turn 40, 0.96 for turns 40–99, 0.99 from turn 100. The first
+forty turns are where the result is still open, and where the nets have gained least.
+Since generation 5 the nets are indistinguishable on this measure too.
+
 Lessons: a stronger or deeper teacher beats more of the same data; width needs data;
 validation loss does not predict playing strength at this level.

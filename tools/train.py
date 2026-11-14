@@ -50,6 +50,39 @@ class Net(nn.Module):
         return z.gather(1, bk[:, None]).squeeze(1)
 
 
+def make_feats(dev, U, WL, T, nbk=4):
+    """Returns feats(idx, yflip) -> (unit idx, walls) for both perspectives + output bucket, built on `dev`."""
+    hpb = torch.tensor(HPB, device=dev)
+    bits = torch.tensor([[(v >> i) & 1 for i in range(8)] for v in range(256)], dtype=torch.float32, device=dev)
+    isLeader = (torch.arange(14, device=dev) < 2)[None, :]
+    uid = torch.arange(14, device=dev)[None, :]
+
+    def feats(idx, yflip):
+        u = U[idx].long()
+        pos, hp, own = u & 127, (u >> 7) & 15, (u >> 11) & 3
+        x, y = pos % W_, pos // W_
+        turn = T[idx].long()
+        walls = bits[WL[idx].long()].reshape(-1, 96)[:, :NC].reshape(-1, H_, W_)
+        if yflip is not None:
+            y = torch.where(yflip[:, None], H_ - 1 - y, y)
+            walls = torch.where(yflip[:, None, None], walls.flip(1), walls)
+        out = []
+        for other in (0, 1):
+            p = ((turn & 1) ^ other)[:, None]                 # perspective player
+            xx = torch.where(p == 1, W_ - 1 - x, x)
+            typ = torch.where(isLeader, (uid != p).long(), torch.where(own == p, 2, torch.where(own == 2, 4, 3)))
+            f = (typ * 4 + hpb[hp]) * NC + y * W_ + xx
+            f = torch.where(hp > 0, f, NUF)
+            wl = torch.where((p == 1)[:, :, None], walls.flip(2), walls).reshape(-1, NC)
+            out += [f, wl]
+        left = 150 - turn
+        bk = (left <= 70).long() + (left <= 30).long() + (left <= 10).long()
+        if nbk != 4:
+            bk = bk * 0
+        return (*out, bk)
+    return feats
+
+
 def export(model, path):
     h = model.h
     w = np.concatenate([model.emb.weight.detach().cpu().numpy()[:NUF], model.wall.weight.detach().cpu().numpy().T])
@@ -105,35 +138,7 @@ def main():
     Y = torch.from_numpy(target).to(dev)
     R = torch.from_numpy(hard).to(dev)
     del data
-    hpb = torch.tensor(HPB, device=dev)
-    bits = torch.tensor([[(v >> i) & 1 for i in range(8)] for v in range(256)], dtype=torch.float32, device=dev)
-    isLeader = (torch.arange(14, device=dev) < 2)[None, :]
-    uid = torch.arange(14, device=dev)[None, :]
-    nbk = a.buckets
-
-    def feats(idx, yflip):
-        u = U[idx].long()
-        pos, hp, own = u & 127, (u >> 7) & 15, (u >> 11) & 3
-        x, y = pos % W_, pos // W_
-        turn = T[idx].long()
-        walls = bits[WL[idx].long()].reshape(-1, 96)[:, :NC].reshape(-1, H_, W_)
-        if yflip is not None:
-            y = torch.where(yflip[:, None], H_ - 1 - y, y)
-            walls = torch.where(yflip[:, None, None], walls.flip(1), walls)
-        out = []
-        for other in (0, 1):
-            p = ((turn & 1) ^ other)[:, None]                 # perspective player
-            xx = torch.where(p == 1, W_ - 1 - x, x)
-            typ = torch.where(isLeader, (uid != p).long(), torch.where(own == p, 2, torch.where(own == 2, 4, 3)))
-            f = (typ * 4 + hpb[hp]) * NC + y * W_ + xx
-            f = torch.where(hp > 0, f, NUF)
-            wl = torch.where((p == 1)[:, :, None], walls.flip(2), walls).reshape(-1, NC)
-            out += [f, wl]
-        left = 150 - turn
-        bk = (left <= 70).long() + (left <= 30).long() + (left <= 10).long()
-        if nbk != 4:
-            bk = bk * 0
-        return (*out, bk)
+    feats = make_feats(dev, U, WL, T, a.buckets)
 
     model = Net(a.hidden, a.buckets).to(dev)
     if a.init:
