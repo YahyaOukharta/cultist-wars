@@ -115,6 +115,7 @@ def main():
     ap.add_argument("--extra", action="append", default=[], help="extra records (e.g. rebuilt arena games), training only, target = game result")
     ap.add_argument("--extra-rep", type=int, default=1, help="times each extra record is repeated per epoch")
     ap.add_argument("--rep", action="append", default=[], help="REGEX:N - files whose name matches REGEX are loaded N times (weight recent generations)")
+    ap.add_argument("--lam-file", action="append", default=[], help="REGEX:LAM - result weight for files whose name matches REGEX")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else
                     ("mps" if torch.backends.mps.is_available() else "cpu"))
     a = ap.parse_args()
@@ -123,10 +124,18 @@ def main():
     paths = sorted(set(p for f in a.files for p in glob.glob(f, recursive=True)))
     reps = [(re.compile(r.rsplit(":", 1)[0]), int(r.rsplit(":", 1)[1])) for r in a.rep]
     times = [max([n for rx, n in reps if rx.search(os.path.basename(p))] or [1]) for p in paths]
-    data = np.concatenate([np.fromfile(p, dtype=REC) for p, t in zip(paths, times) for _ in range(t)])
+    lfs = [(re.compile(r.rsplit(":", 1)[0]), float(r.rsplit(":", 1)[1])) for r in a.lam_file]
+    chunks = [np.fromfile(p, dtype=REC) for p in paths]
+    flam = [next((l for rx, l in lfs if rx.search(os.path.basename(p))), a.lam) for p in paths]
+    data = np.concatenate([c for c, t in zip(chunks, times) for _ in range(t)])
+    lam = np.concatenate([np.full(len(c), l, np.float32) for c, l, t in zip(chunks, flam, times) for _ in range(t)])
+    del chunks
     if reps:
         print(f"repeated: {sum(t > 1 for t in times)} files", flush=True)
-    np.random.default_rng(1).shuffle(data)
+    if lfs:
+        print(f"own result weight: {sum(l != a.lam for l in flam)} files", flush=True)
+    perm = np.random.default_rng(1).permutation(len(data))
+    data, lam = data[perm], lam[perm]
     n = len(data)
     nval = min(200000, n // 20)
     res = (data["result"].astype(np.float32) + 1) / 2
@@ -136,7 +145,8 @@ def main():
         soft = 1 / (1 + np.exp(-a.margin_c * data["margin"].astype(np.float32)))
         res = ((1 - a.margin_w) * res + a.margin_w * soft).astype(np.float32)
     sc = np.clip(data["score"].astype(np.float32), -4000, 4000)
-    target = (a.lam * res + (1 - a.lam) / (1 + np.exp(-sc / a.k))).astype(np.float32)
+    target = (lam * res + (1 - lam) / (1 + np.exp(-sc / a.k))).astype(np.float32)
+    del lam
     epaths = sorted(set(p for f in a.extra for p in glob.glob(f, recursive=True)))
     if epaths:              # appended after the shuffle: never in the validation slice
         ex = np.concatenate([np.fromfile(p, dtype=REC) for p in epaths])
