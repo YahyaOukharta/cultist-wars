@@ -35,7 +35,15 @@ static const Move NOMOVE = 0xFFFF;
 #define TM_PCT 60
 #endif
 #ifndef TT_BITS
-#define TT_BITS 21
+#define TT_BITS 19
+#endif
+#ifdef CGBENCH        // benchmark build: these switches become run-time so one process can time every setting
+static int gTtEv = 1, gStaged = 1, gThreat = 1, gSimd = 1;
+static unsigned long long gTtMask = (1ULL << TT_BITS) - 1;
+#define TT_EV gTtEv
+#define STAGED gStaged
+#define THREAT gThreat
+#define TT_MASK gTtMask
 #endif
 #ifndef LMR
 #define LMR 1
@@ -473,6 +481,14 @@ static inline int nnEval(const State& s) {
     int sum = 0;
 #if defined(__AVX2__) && NN_H % 16 == 0 && !defined(NO_SIMD)
     // v = clamp(acc, 0, 255); sum += (v * o) * v, 16 lanes at a time: v * o fits int16 (255 * 127).
+#ifdef CGBENCH
+    if (!gSimd) {
+        for (int i = 0; i < NN_H; i++) {
+            int v = min(max((int)a0[i], 0), (int)QA), w = min(max((int)a1[i], 0), (int)QA);
+            sum += v * o0[i] * v + w * o1[i] * w;
+        }
+    } else {
+#endif
     const __m256i zero = _mm256_setzero_si256(), qa = _mm256_set1_epi16(QA);
     __m256i acc = zero;
     for (int i = 0; i < NN_H; i += 16) {
@@ -485,6 +501,9 @@ static inline int nnEval(const State& s) {
     h = _mm_add_epi32(h, _mm_shuffle_epi32(h, 0x4E));
     h = _mm_add_epi32(h, _mm_shuffle_epi32(h, 0xB1));
     sum = _mm_cvtsi128_si32(h);
+#ifdef CGBENCH
+    }
+#endif
 #else
     for (int i = 0; i < NN_H; i++) {
         int v = min(max((int)a0[i], 0), (int)QA), w = min(max((int)a1[i], 0), (int)QA);
@@ -515,7 +534,9 @@ struct TTE { uint32_t key; Move move; int16_t score; int16_t ev; int8_t depth; u
 static const int16_t EV_NONE = -32768;
 enum { TT_EXACT = 1, TT_LOWER = 2, TT_UPPER = 3 };
 static TTE* tt;
+#ifndef CGBENCH
 static const U64 TT_MASK = (1ULL << TT_BITS) - 1;
+#endif
 static int hist[2][1 << 13];
 static Move killer[MAXTURN + 8][2];
 static long long nodes, nodeLimit;
@@ -933,6 +954,49 @@ static void runGen(const char* spec) {
 }
 #endif
 
+#ifdef CGBENCH
+// Node speed on the machine we are running on: three fixed positions, fixed nodes, printed to
+// stderr during the first turn. Used in CodinGame test games to compare builds on their CPUs.
+static void cgBench() {
+    static const char* pos[3] = {
+        "x.x.......x.x x...........x x...........x ............. ............. x...........x x...........x|0,7,2,2,0 3,8,3,1,0 4,7,3,4,0 5,10,1,4,0 6,1,1,5,0 10,10,9,2,1 11,10,9,3,1 13,10,9,1,1",
+        "............. .x.........x. ...x.x.x.x... ..x.......x.. .....x.x..... ............. x...........x|0,10,0,3,0 1,10,12,3,1 2,10,4,3,2 3,10,4,2,2 4,10,4,0,2 5,10,3,6,2 6,10,4,5,2 7,10,2,0,2 8,10,8,3,2 9,10,8,2,2 10,10,8,0,2 11,10,9,6,2 12,10,8,5,2 13,10,10,0,2",
+        "............. x...........x ............. ..x.......x.. ..x.......x.. x....x.x....x ..x.x...x.x..|0,9,3,2,0 1,10,9,1,1 2,10,5,3,2 3,7,2,0,0 4,7,3,3,0 5,10,3,0,0 6,4,1,3,0 8,10,7,3,2 9,10,10,0,1 10,6,9,3,1 11,10,9,0,1 12,10,11,3,1"};
+    // tt-eval, staged, threat, simd, table bits
+    static const int cfg[8][5] = {{0, 0, 1, 0, 21}, {0, 0, 1, 1, 21}, {1, 0, 1, 1, 21}, {1, 1, 1, 1, 21},
+                                  {1, 1, 1, 1, 19}, {1, 1, 1, 1, 18}, {1, 1, 1, 1, 17}, {1, 1, 0, 1, 21}};
+    for (int rep = 0; rep < 2; rep++)
+    for (int c = 0; c < 8; c++) {
+        gTtEv = cfg[c][0]; gStaged = cfg[c][1]; gThreat = cfg[c][2]; gSimd = cfg[c][3]; gTtMask = (1ULL << cfg[c][4]) - 1;
+        long long nn = 0; double ms = 0;
+        for (int k = 0; k < 3; k++) {
+            char grid[H][W + 2];
+            for (int y = 0; y < H; y++) { memcpy(grid[y], pos[k] + y * (W + 1), W); grid[y][W] = 0; }
+            initTables(grid);
+            Obs o;
+            memset(&o, 0, sizeof o);
+            const char* p = strchr(pos[k], '|') + 1;
+            int id, hp, x, y, ow, n;
+            while (sscanf(p, " %d,%d,%d,%d,%d%n", &id, &hp, &x, &y, &ow, &n) == 5) {
+                o.hp[id] = (int8_t)hp; o.pos[id] = (int8_t)(y * W + x); o.own[id] = (int8_t)ow;
+                p += n;
+            }
+            State s = fromObs(o, 42, 0, nullptr);
+            memset(tt, 0, sizeof(TTE) * (gTtMask + 1));
+            memset(hist, 0, sizeof hist);
+            nodeLimit = CGBENCH;
+            think(s, 1e9);
+            nn += info.nodes; ms += info.ms;
+        }
+        fprintf(stderr, "CGBENCH %d.%d ev%d st%d th%d simd%d tt%d %.0f knps\n", rep, c, cfg[c][0], cfg[c][1], cfg[c][2], cfg[c][3], cfg[c][4], nn / ms);
+    }
+    nodeLimit = 0;
+    gTtEv = gStaged = gThreat = gSimd = 1; gTtMask = (1ULL << TT_BITS) - 1;
+    memset(tt, 0, sizeof(TTE) << TT_BITS);
+    memset(hist, 0, sizeof hist);
+}
+#endif
+
 #ifndef CW_LIB
 int main() {
 #ifdef LOCAL
@@ -964,8 +1028,11 @@ int main() {
     for (int y = 0; y < H; y++) if (scanf("%14s", grid[y]) != 1) return 0;
     for (int y = 0; y < H; y++) fprintf(stderr, "%s\n", grid[y]);
     initNet();
-    initTables(grid);
     initSearch();
+#ifdef CGBENCH
+    cgBench();
+#endif
+    initTables(grid);
     double msTurn = MS_TURN, msFirst = MS_FIRST;
 #ifdef LOCAL
     if (getenv("CW_NODES")) nodeLimit = atoll(getenv("CW_NODES"));

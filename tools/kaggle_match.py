@@ -20,7 +20,7 @@ SFX = "" if PROF == "1" else f"_p{PROF}"
 ENV = {**os.environ, "KAGGLE_API_TOKEN": open(os.path.expanduser(f"~/.kaggle/access_token{_SUF}")).read().strip(),
        "PATH": os.path.expanduser("~/.local/bin") + ":" + os.environ["PATH"]}
 SCRIPT = '''import glob, os, shutil, subprocess
-A, FA, B, FB, GAMES, NODES, MS = %r, %r, %r, %r, %d, %d, %d
+A, FA, B, FB, GAMES, NODES, MS, SEED = %r, %r, %r, %r, %d, %d, %d, %d
 d = os.path.dirname(glob.glob("/kaggle/input/**/referee.cpp", recursive=True)[0])
 os.makedirs("/tmp/src/tools", exist_ok=True)
 shutil.copy(d + "/referee.cpp", "/tmp/src/tools/referee.cpp")
@@ -31,7 +31,7 @@ subprocess.check_call(cc + FA.split() + ["-o", "/tmp/a", d + "/" + A])
 subprocess.check_call(cc + FB.split() + ["-o", "/tmp/b", d + "/" + B])
 # MS > 0: real time control (2 games at once on 4 vCPUs so every bot has a core to itself)
 mode = ["-j", "2", "-n", "0", "-t", str(MS), "-f", "1000", "-x", "20"] if MS else ["-j", "4", "-n", str(NODES)]
-out = subprocess.check_output(["/tmp/referee", "/tmp/a", "/tmp/b", "-g", str(GAMES), "-s", "777"] + mode, text=True)
+out = subprocess.check_output(["/tmp/referee", "/tmp/a", "/tmp/b", "-g", str(GAMES), "-s", str(SEED)] + mode, text=True)
 print("RESULT", A + "@" + FA, B + "@" + FB, out.strip().splitlines()[-1], flush=True)
 '''
 
@@ -64,7 +64,8 @@ def push(name, specs, games, nodes, ms=0):
     for i in range(0, len(bots), 2):
         k = os.path.join(ROOT, "kaggle", f"m{SFX}_{name}_{i // 2 + 1}")
         os.makedirs(k, exist_ok=True)
-        open(os.path.join(k, "match.py"), "w").write(SCRIPT % (bots[i][0], bots[i][1], bots[i + 1][0], bots[i + 1][1], games, nodes, ms))
+        seed = 777 + 1000 * (i // 2) + sum(map(ord, name + SFX))      # different maps per kernel and per batch
+        open(os.path.join(k, "match.py"), "w").write(SCRIPT % (bots[i][0], bots[i][1], bots[i + 1][0], bots[i + 1][1], games, nodes, ms, seed))
         json.dump({"id": f"{USER}/cw-match-{name}-{i // 2 + 1}", "title": f"cw-match-{name}-{i // 2 + 1}", "code_file": "match.py",
                    "language": "python", "kernel_type": "script", "is_private": True, "enable_gpu": False,
                    "enable_internet": False, "dataset_sources": [f"{USER}/cw-match"]}, open(os.path.join(k, "kernel-metadata.json"), "w"))
