@@ -19,6 +19,7 @@ the arena).
 | v2.6 | n7e80 net (v2.5 recipe, 80 epochs); transposition table in quiescence; packer strips indentation (94.7k chars) | +34 ± 14 at 20k nodes vs v2.5 (2,400 games); QTT +13.5 [+4, +23] over 4,800 games; aCat first seat on 9 fixed maps 2.5/9 then 6.5/9 on a re-run (v2.5 6/9): nine test games cannot separate versions; second-seat suite 5–5 vs 5–4–1 for v2.5 | 29.54 (128 battles): first seat 36–8–5 against 71–3–4 for v2.5, five first-seat losses to aCat after leading by up to +1,400; reverted to v2.5 | 4 |
 | v2.5 again | resubmitted unchanged (baseline) | | **31.97** (stratified 75.5% vs 71.2% for its first run) | 3 |
 | v2.7a | v2.5 + new iterations allowed until 85% of the turn (`TM_PCT` 85, mean 39 ms per turn instead of 33) | +16, +12, +6 at 50 ms (3,600 games, pooled +11 ± 12) | 30.87; on v2.5's game mix 70.0%: within v2.5's range. It drew 35 second-seat games against the top 3 (v2.5's rerun: 23) | 3 |
+| v2.7c | v2.5 with the n11d net (generations 3–12, 65.6M positions, result weight 0.6, 40 epochs): best on held-out real battles (AUC 0.9421, log-loss 0.360 against 0.383 for n7a, 34k positions from 247 battles) | −7 ± 14 at 20k nodes (2,400 games) | 29.55; on v2.5's mix 67.4% (v2.5 71.2 / 75.5): top 3 first seat 10/16, second 5/22. Reverted to v2.5 | 3 |
 
 ## Measured (300 games each, ±40 Elo, vs v1.0)
 
@@ -76,6 +77,11 @@ What the episode showed:
 - Nets scored on held-out real battles (v2.6's 128): AUC 0.928–0.934 for every net since
   generation 5 (n5d best, n7e80 among the worst); the arena-mixed net n10x overfits (0.965
   on its own training games, 0.928 held out).
+
+One arena run is about 120 battles: its score on a fixed game mix has a standard error
+near 4 points of percentage (about 30 Elo). v2.5's own two runs gave 71.2% and 75.5%. A
+candidate must beat v2.5 by more than that to be told apart in one run; smaller changes
+need two runs or a paired test-game suite.
 
 ## What the arena battles say (676 games rebuilt from seed + moves)
 
