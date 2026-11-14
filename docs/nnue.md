@@ -127,7 +127,7 @@ validation loss does not predict playing strength at this level.
 
 | n13a (v2.9a) | n12a + 447k endgame positions (100k nodes, every move from turn 80 at 1M nodes) ×4 + 50k newer arena positions | +3 ± 17 vs n12a | 0.9628 / 0.376 † | 30.45 (reverted) |
 | n14a | n12a + 1.77M positions played out from 20,914 real mid-game positions (`CW_STARTS`), ×2 | −18 ± 17 vs n12a | 0.9625 / 0.378 † | |
-| n14b | same, play-outs ×5 | +6 ± 17 vs n12a | 0.9622 / 0.378 † | |
+| n14b | same, play-outs ×5 | +6 ± 17 vs n12a | 0.9622 / 0.378 † | not submitted; paired test-game replays of 74 of v2.8a's arena games against the top three: −0.05 ± 0.06 per game against n12a (`tools/pairs.py`) |
 
 AUC columns: 34k positions from 247 battles of v2.6 and v2.5's rerun, not in any training
 set at the time. †: 30k positions from 224 later battles (v2.9a and v2.8a's second run),

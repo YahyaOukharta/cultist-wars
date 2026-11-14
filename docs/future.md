@@ -9,8 +9,10 @@ for Cultist Wars until it passes a gate match.
 Rank 1 of 401 at 32.48, 0.4 ahead of second. Open:
 
 - **Self-play from real positions.** `CW_STARTS`: 20,914 mid-game positions taken from our
-  arena battles (turns 10–110), played out at 100k nodes per move: 1.77M positions. Nets
-  n14a–n14d train on them with different weights; none has been through the arena yet.
+  arena battles (turns 10–110), played out at 100k nodes per move: 1.77M positions. n14a
+  (×2) lost 18 Elo in self-play; n14b (×5) was even in self-play and 0.05 per game behind
+  v2.8a's net in paired test-game replays of 74 real maps. Not shipped. Heavier weights
+  (n14c, n14d) were not trained to the end.
 - **Second seat** is the weak side: 43% against the top three, 72% against the rest (first
   seat 85% and 96%).
 - **A cheaper predictor of arena strength.** One arena run resolves about 50 Elo; self-play,
