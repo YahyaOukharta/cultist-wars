@@ -234,6 +234,19 @@ python3 tools/kaggle_match.py fetch gate
 - **Pass:** not worse than the fixed-node result by more than the noise, and `faults 0/0`.
 - Skip 6b only for a net of the same size with the same search.
 
+**6c. Speed changes.** A change that leaves the search tree identical (same depth, score
+and node count at fixed nodes) cannot be weaker; it needs a speed number and a fault
+check, not a strength gate. Measure the speed on CodinGame itself:
+
+```sh
+python3 tools/pack.py -n tools/nets/LIVE.bin -H 64 -D CGBENCH=25000 -o out/cgb.cpp
+python3 tools/cg.py test out/cgb.cpp default      # repeat 5 times; read the CGBENCH lines in the log
+```
+
+The bot times each setting back to back in the same process, so every comparison is on
+the same machine. Never compare speeds across games (±15%) or trust another CPU family.
+A 300-game real-time gate resolves ±40 Elo; a 10% speed gain is +14.
+
 **Soundness check for pruning changes** (optional, cheap): the candidate at 20k nodes
 against a deliberately unpruned build at 60k. A pruning that only wins against itself
 loses here.

@@ -90,5 +90,10 @@ python3 tools/train.py -o tools/nets/n.bin 'data/*.bin' --hidden 64 --epochs 40 
 | 128 hidden at 58M | +24 at equal nodes, 14% slower: not worth the characters |
 | Relational inputs: units under fire (best and second best enemy shot), units next to a leader that can convert them | better validation loss (0.3654 vs 0.3664), −5 / −16 Elo at equal nodes, 27% slower; gauntlet tie. Kept on branch `relational` |
 
+| Generation 5: all 90M positions vs the 55M searched at 20k nodes only | +33 each: the 8k-node generations add nothing (v2.4 uses the 55M) |
+| + 3.8M positions searched at 60k nodes | −6: too few yet |
+| Result weight 0.2 / 0.3 / 0.4 / 0.6 / 0.8 | −2 / −2 / +21 / 0 / −18: flat from 0.2 to 0.6 |
+| Result target softened by the final unit margin, `sigmoid(0.7 · margin)` (`--margin-w 1`) | +24 (half weight: +15) |
+
 Lessons: a stronger or deeper teacher beats more of the same data; width needs data;
 validation loss does not predict playing strength at this level.

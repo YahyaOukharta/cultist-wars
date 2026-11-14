@@ -55,6 +55,39 @@ With the net:
 | Late move pruning at every depth (`LMP_D=20 LMP_LIN=1`) | +8 / −6 |
 | v2.3 neighbours: RFP 100 / 220, RFP depth 7, QDMG 2, QMAX 4 / 10, FUT 300 / 650, FUT depth 3, LMP 3, NMP 3, LMR 0.9 / 1.3, ASP 35, IIR | all within ±18: plateau |
 
+## Speed (v2.4)
+
+More nodes are worth a lot here: the same bot with twice the nodes wins by +105 Elo at
+20k → 40k and +103 at 80k → 160k; four times gives +178.
+
+Speed is measured where it counts. CodinGame machines differ by ±15% from game to game and
+Kaggle CPUs disagree with each other (a small table is +27% on an AMD EPYC and nothing on
+an Intel Xeon), so the benchmark runs inside a CodinGame test game:
+`pack.py -D CGBENCH=25000` builds a bot that times eight settings back to back on three
+fixed positions during its first turn. Ten paired samples:
+
+| Change | Nodes/s vs v2.3 | Tree |
+|---|---|---|
+| AVX2 output layer (`_mm256_mullo_epi16` + `_mm256_madd_epi16`) | +4.1% | identical |
+| + static eval kept in the transposition table (`TT_EV`) | +5.2% | identical |
+| + hash move searched before any move is generated (`STAGED`) | +7.8% | same moves, ties ordered differently |
+| + 524k-entry table (`TT_BITS` 19, 6 MB instead of 25) | **+13.2%** | slightly fewer hits |
+| 262k / 131k entries | +15.4% / +16.6% | not adopted |
+| Leader-threat scoring off | a further +2.6% | 0 ± 34 Elo at equal nodes: off since v2.4 |
+
+Also in: one-pass accumulator update on a unit move (`accSwap`), leaving the move loop at
+the first pruned quiet move (`PRUNE_BREAK`, identical tree, 1–3%).
+
+Measured and dropped: using 95% of the turn before stopping (`TM_PCT`, +5 ± 39 and
++9 ± 44); 47 ms per turn (a timeout costs more than 7% more nodes earn); staged
+tactical/quiet generation (only 30–43% of generating nodes never reach a quiet move).
+
+Real-time gates of 300 games (±40 Elo) cannot see a 10% speed gain (+14 Elo). A change
+that leaves the tree identical needs a benchmark and a fault check, not a strength gate.
+
+Optimised profile after these changes: search body 25%, move generation 18%, accumulator
+13%, move picking 11%, evaluation 9%, shot resolution 7%, apply 7%.
+
 ## What the tree looks like
 
 On a shooting endgame at 120k nodes: 57% search nodes, 43% quiescence; 2.2 moves searched
