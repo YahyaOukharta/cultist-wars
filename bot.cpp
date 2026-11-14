@@ -38,7 +38,7 @@ static const Move NOMOVE = 0xFFFF;
 #define TT_BITS 19
 #endif
 #ifdef CGBENCH        // benchmark build: these switches become run-time so one process can time every setting
-static int gTtEv = 1, gStaged = 1, gThreat = 0, gSimd = 1, gQtt = 0;
+static int gTtEv = 1, gStaged = 1, gThreat = 0, gSimd = 1, gQtt = 1;
 static unsigned long long gTtMask = (1ULL << TT_BITS) - 1;
 #define TT_EV gTtEv
 #define STAGED gStaged
@@ -597,7 +597,10 @@ static inline int pick(Move* mv, int* sc, int i, int n) {
 #define CMH 0
 #endif
 #ifndef QTT          // transposition table probe/store in quiescence (0 = off)
-#define QTT 0
+#define QTT 1
+#endif
+#ifndef QTTS         // quiescence also stores stand-pat cutoffs (0 = off)
+#define QTTS 0
 #endif
 #ifndef TT2          // two-entry buckets: probe both, replace the shallower / older entry (0 = one entry, always replace)
 #define TT2 0
@@ -639,7 +642,13 @@ static int qsearch(const State& s, int alpha, int beta, int ply, int qd) {
     }
     if (stand == EV_NONE) stand = evalStm(s);
     int ev = stand;
-    if (stand >= beta || qd >= QMAX) return stand;
+    if (stand >= beta || qd >= QMAX) {
+        if (QTTS && QTT && stand >= beta && (!hit ? e->depth <= 0 || TT2 : e->depth <= 0) && abs(stand) < MATE - 400) {   // stand-pat cut: a lower bound
+            e->key = (uint32_t)(k >> 32); e->move = NOMOVE; e->score = (int16_t)stand; e->ev = (int16_t)ev; e->depth = 0;
+            e->flag = (uint8_t)(TT_LOWER | (TT2 ? (ttAge & 63) << 2 : 0));
+        }
+        return stand;
+    }
     if (stand > alpha) alpha = stand;
     Move mv[64]; int sc[64];
     int n = gen(s, mv, sc, 2);
@@ -1125,7 +1134,7 @@ static void cgBench() {
         fprintf(stderr, "CGBENCH %d.%d ev%d st%d th%d simd%d tt%d q%d %.0f knps\n", rep, c, cfg[c][0], cfg[c][1], cfg[c][2], cfg[c][3], cfg[c][4], cfg[c][5], nn / ms);
     }
     nodeLimit = 0;
-    gTtEv = gStaged = gSimd = 1; gThreat = 0; gQtt = 0; gTtMask = (1ULL << TT_BITS) - 1;
+    gTtEv = gStaged = gSimd = 1; gThreat = 0; gQtt = 1; gTtMask = (1ULL << TT_BITS) - 1;
     memset(tt, 0, sizeof(TTE) << TT_BITS);
     memset(hist, 0, sizeof hist);
 }

@@ -78,6 +78,15 @@ fixed positions during its first turn. Ten paired samples:
 Also in: one-pass accumulator update on a unit move (`accSwap`), leaving the move loop at
 the first pruned quiet move (`PRUNE_BREAK`, identical tree, 1–3%).
 
+Transposition table in quiescence (`QTT`, v2.6): quiescence probes the table (bounds from
+any earlier visit, and the stored static eval instead of a new evaluation) and stores its
+result at depth 0 where the slot holds no deeper entry. +14 and +13 Elo over two 2,400-game
+matches at 20k nodes (pooled +13.5, 95% interval +4 to +23); node speed on CodinGame −1%.
+Quiescence is 43% of the nodes and had no table at all before.
+
+Flat at 2,400 games (±14): countermove ordering (`CMH`, +5), two-entry buckets with
+depth/age replacement (`TT2`, −2; +10 together with QTT, against +14 without).
+
 Measured and dropped: using 95% of the turn before stopping (`TM_PCT`, +5 ± 39 and
 +9 ± 44); 47 ms per turn (a timeout costs more than 7% more nodes earn); staged
 tactical/quiet generation (only 30–43% of generating nodes never reach a quiet move).

@@ -16,3 +16,4 @@ kaggle/
 
 # float checkpoints stay local
 tools/nets/*.pt
+versions/*_sub.cpp
